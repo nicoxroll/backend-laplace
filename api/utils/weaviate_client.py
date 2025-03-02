@@ -2,12 +2,15 @@ import weaviate
 from config import settings
 import json
 import logging
+from pydantic import ConfigDict  # Nueva importación requerida
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class WeaviateClient:
     _instance = None
+    # Configuración actualizada para Pydantic v2
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     
     def __new__(cls):
         if cls._instance is None:
@@ -84,6 +87,5 @@ class WeaviateClient:
             logger.error(f"Search failed: {e}")
             return []
 
-# Función de ayuda para obtener el cliente
 def get_weaviate_client():
     return WeaviateClient().get_client()

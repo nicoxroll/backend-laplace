@@ -144,8 +144,8 @@ async def process_upload(file_stream: AsyncGenerator, user_id: str, filename: st
     Process file as it's being uploaded without saving to disk
     """
     import torch
-    from ..db.weaviate_client import store_vectors_in_weaviate
-    from ..db.redis_client import update_processing_status, cache_chunks
+    from db.weaviate_client import store_vectors_in_weaviate
+    from db.redis_client import update_processing_status, cache_chunks
     
     # Generate job ID for tracking
     job_id = str(uuid.uuid4())
@@ -233,8 +233,8 @@ async def process_upload(file_stream: AsyncGenerator, user_id: str, filename: st
 
 async def parallel_vector_upload(chunks: list, user_id: str, filename: str, content_type: str, job_id: str):
     """Upload vectors in parallel with compression"""
-    from ..services.vector_optimizer import optimize_vectors
-    from ..db.weaviate_client import store_vectors_in_weaviate
+    from services.vector_optimizer import optimize_vectors
+    from db.weaviate_client import store_vectors_in_weaviate
     
     # Optimize vectors before upload
     optimized = optimize_vectors(chunks)
@@ -268,5 +268,73 @@ async def parallel_vector_upload(chunks: list, user_id: str, filename: str, cont
             )
         )
     
+    
     # Wait for all uploads to complete
     await asyncio.gather(*tasks)
+
+def process_file_with_rope(file_path: str, content_type: str) -> List[Dict[str, Any]]:
+    """
+    Process a file using ROPE Chunking strategy based on content type.
+    
+    Args:
+        file_path: Path to the file to process
+        content_type: MIME type of the file
+        
+    Returns:
+        List of chunks with embeddings
+    """
+    import os
+    import torch
+    
+    # Instanciar el chunker
+    chunker = ROPEChunker()
+    
+    # Leer el contenido del archivo
+    with open(file_path, 'rb') as f:
+        file_content = f.read()
+    
+    # Determinar estrategia de procesamiento basada en content_type
+    if content_type.startswith('text/plain'):
+        # Texto plano
+        text = file_content.decode('utf-8', errors='ignore')
+        return chunker.chunk_text(text)
+        
+    elif 'python' in content_type or file_path.endswith('.py'):
+        # Código Python
+        code = file_content.decode('utf-8', errors='ignore')
+        return chunker.chunk_code_by_functions(code)
+        
+    elif 'markdown' in content_type or file_path.endswith(('.md', '.markdown')):
+        # Markdown
+        markdown = file_content.decode('utf-8', errors='ignore')
+        return chunker.chunk_by_headings(markdown)
+        
+    elif 'pdf' in content_type or file_path.endswith('.pdf'):
+        # PDF - usar PyPDFLoader si es posible
+        from langchain_community.document_loaders import PyPDFLoader
+        loader = PyPDFLoader(file_path)
+        docs = loader.load()
+        chunks = []
+        for doc in docs:
+            embedding = chunker.embedding_model.embed_query(doc.page_content)
+            chunks.append({
+                "content": doc.page_content,
+                "embedding": embedding,
+                "metadata": doc.metadata
+            })
+        return chunks
+    
+    elif 'json' in content_type or file_path.endswith('.json'):
+        # JSON
+        import json
+        try:
+            data = json.loads(file_content.decode('utf-8'))
+            text = json.dumps(data, indent=2)
+            return chunker.chunk_text(text)
+        except:
+            # Si falla el parsing, tratar como texto
+            return chunker.chunk_text(file_content.decode('utf-8', errors='ignore'))
+    
+    else:
+        # Para otros tipos de archivo, usar chunking adaptativo
+        return adaptive_chunking(file_content, content_type)

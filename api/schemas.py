@@ -1,22 +1,30 @@
-from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List, Dict, Any, Union
-from uuid import UUID
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from uuid import UUID
 
 # User schemas
 class UserBase(BaseModel):
-    email: EmailStr
     username: str
+    email: Optional[str] = None
+    name: Optional[str] = None
 
 class UserCreate(UserBase):
-    password: str
+    provider_user_id: str
+    provider: str
+    avatar: Optional[str] = None
 
 class UserResponse(UserBase):
     id: int
+    provider_user_id: str
+    provider: str
+    avatar: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Agent schemas
 class AgentBase(BaseModel):
@@ -34,8 +42,9 @@ class AgentResponse(AgentBase):
     knowledge_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Knowledge schemas
 class KnowledgeBase(BaseModel):
@@ -50,8 +59,9 @@ class KnowledgeResponse(KnowledgeBase):
     user_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Repository schemas
 class RepositoryBase(BaseModel):
@@ -68,8 +78,9 @@ class RepositoryResponse(RepositoryBase):
     last_indexed: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Chat schemas
 class ChatBase(BaseModel):
@@ -84,8 +95,9 @@ class ChatResponse(ChatBase):
     user_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Agent Knowledge schemas
 class AgentKnowledgeBase(BaseModel):
@@ -99,8 +111,9 @@ class AgentKnowledgeResponse(AgentKnowledgeBase):
     user_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Analysis schemas
 class AnalysisRequest(BaseModel):
@@ -116,8 +129,9 @@ class AnalysisResponse(BaseModel):
     context_used: Optional[Dict[str, Any]] = None
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Knowledge Base schemas
 class KnowledgeBaseBase(BaseModel):
@@ -132,8 +146,9 @@ class KnowledgeBaseResponse(KnowledgeBaseBase):
     user_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Auth schemas
 class Token(BaseModel):
@@ -154,7 +169,11 @@ class UserSettingsCreate(UserSettingsBase):
 
 class UserSettingsResponse(UserSettingsBase):
     user_id: int
+    theme: Optional[str] = None
+    language: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }

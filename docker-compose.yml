@@ -13,12 +13,23 @@ services:
       - RABBITMQ_URL=amqp://admin:securepass123@rabbitmq:5672
       - WEAVIATE_URL=http://weaviate:8080
     depends_on:
-      - db
-      - redis
-      - rabbitmq
-      - weaviate
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
     networks:
       - laplace-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   worker:
     build: ./worker
@@ -32,12 +43,17 @@ services:
       rabbitmq:
         condition: service_healthy
       db:
-        condition: service_started
+        condition: service_healthy
       weaviate:
         condition: service_started
     networks:
       - laplace-network
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   bert-service:
     build: ./bert-service
@@ -49,6 +65,13 @@ services:
       - MODEL_PATH=/app/models
     networks:
       - laplace-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   db:
     image: postgres:13
@@ -63,6 +86,12 @@ services:
       - "5432:5432"
     networks:
       - laplace-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:alpine
@@ -72,6 +101,12 @@ services:
       - redis_data:/data
     networks:
       - laplace-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -87,16 +122,19 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s      # Aumentado de 10s a 30s
+      timeout: 15s       # Aumentado de 5s a 15s
       retries: 5
+      start_period: 60s  # Añadido periodo inicial de inicio
+    restart: unless-stopped
 
   weaviate:
-    image: semitechnologies/weaviate:1.19.6
+    image: semitechnologies/weaviate:1.18.3
     ports:
       - "8080:8080"
     environment:
       QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"  # Habilitar acceso anónimo
       PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
       DEFAULT_VECTORIZER_MODULE: "text2vec-transformers"
       ENABLE_MODULES: "text2vec-transformers"
@@ -105,6 +143,16 @@ services:
       - weaviate_data:/var/lib/weaviate
     networks:
       - laplace-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      bert-service:
+        condition: service_started
 
 networks:
   laplace-network:

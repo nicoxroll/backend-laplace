@@ -1,0 +1,44 @@
+# Entorno y dependencias
+.env
+.env.local
+venv/
+env/
+.venv/
+.env.example
+pycache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.log
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs y bases de datos
+*.log
+*.sqlite
+*.db
+*.dump
+
+# Archivos temporales
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Docker
+docker-compose.override.yml
+
+
+
+# Weaviate persistence
+/var/lib/weaviate/
+
+# Archivos de configuración específicos del proyecto
+/config/local.yaml

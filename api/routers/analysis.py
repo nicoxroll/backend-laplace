@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from models import AnalysisResult
-from database import get_db
+from database.db import get_db
 from utils.weaviate_client import search_hybrid
 from utils.redis_client import cache
 from utils.ollama_client import generate_response

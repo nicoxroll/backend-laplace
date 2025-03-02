@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 import numpy as np
 import logging
 from sklearn.decomposition import PCA
-from ..db.embeddings_client import generate_embeddings
+from db.embeddings_client import generate_embeddings
 
 logger = logging.getLogger(__name__)
 

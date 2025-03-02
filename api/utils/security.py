@@ -1,4 +1,4 @@
-from api.models import AgentKnowledge
+from models import AgentKnowledge
 from sqlalchemy.ext.asyncio import AsyncSession
 
 async def validate_agent_knowledge_access(

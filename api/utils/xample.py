@@ -1,4 +1,4 @@
-from api.models import Agent, AgentKnowledge
+from models import Agent, AgentKnowledge
 
 # Usuario 1 crea agentes privados
 agente1 = Agent(user_id=1, name="Mi Agente Privado", is_private=True)

@@ -1,5 +1,6 @@
-from fastapi import Request
+from fastapi import Request, FastAPI
 from fastapi.responses import JSONResponse
+import uuid
 
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
@@ -11,9 +12,13 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-@app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request.state.request_id = uuid.uuid4()
     response = await call_next(request)
     response.headers["X-Request-ID"] = str(request.state.request_id)
     return response
+
+# En lugar de usar el decorador, definimos una función para registrar los handlers
+def add_error_handlers(app: FastAPI):
+    app.middleware("http")(add_request_id)
+    app.exception_handler(Exception)(global_exception_handler)

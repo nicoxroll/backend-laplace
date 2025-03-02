@@ -1,12 +1,13 @@
 import weaviate
 import os
 import uuid
+import logging
 from typing import List, Dict, Any
 import numpy as np
 from datetime import datetime
 from dotenv import load_dotenv
-from api.db.embeddings_client import generate_embeddings
-from api.db.query_expansion import expand_query  # Import expand_query function
+from db.embeddings_client import generate_embeddings
+from db.query_expansion import expand_query
 
 load_dotenv()
 
@@ -16,9 +17,46 @@ logger = logging.getLogger(__name__)
 WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
 WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY", None)
 
-# Create a Weaviate client
-auth_config = weaviate.auth.AuthApiKey(api_key=WEAVIATE_API_KEY) if WEAVIATE_API_KEY else None
-client = weaviate.Client(url=WEAVIATE_URL, auth_client_secret=auth_config)
+# Create a Weaviate client with version compatibility
+try:
+    # Determine Weaviate client version
+    import pkg_resources
+    weaviate_version = pkg_resources.get_distribution("weaviate-client").version
+    logger.info(f"Detected weaviate-client version: {weaviate_version}")
+    
+    if weaviate_version.startswith("4."):
+        # Weaviate Client v4.x
+        from weaviate.client import WeaviateClient
+        from weaviate.connect import ConnectionParams
+
+        # Create connection params WITHOUT auth (remove auth_client_secret)
+        from urllib.parse import urlparse
+        parsed_url = urlparse(WEAVIATE_URL)
+        host = parsed_url.netloc.split(':')[0] if ':' in parsed_url.netloc else parsed_url.netloc
+        http_port = int(parsed_url.netloc.split(':')[1]) if ':' in parsed_url.netloc else 8080
+        grpc_port = http_port + 1  # Typically gRPC is HTTP + 1
+
+        # Create connection params without auth_client_secret
+        connection_params = ConnectionParams.from_url(
+            url=WEAVIATE_URL,
+            grpc_port=grpc_port
+        )
+        
+        # Create client (auth will be handled by docker-compose environment variables)
+        client = WeaviateClient(connection_params)
+        logger.info("Connected to Weaviate using v4 client")
+    else:
+        # Older Weaviate client
+        client = weaviate.Client(WEAVIATE_URL)
+        logger.info("Connected to Weaviate using legacy client")
+except Exception as e:
+    logger.error(f"Error connecting to Weaviate: {e}")
+    # Create a basic client as fallback
+    try:
+        client = weaviate.Client(WEAVIATE_URL) 
+        logger.warning("Connected with basic client after error")
+    except:
+        raise RuntimeError(f"Cannot connect to Weaviate: {e}")
 
 # Define class name for knowledge chunks
 KNOWLEDGE_CLASS = "KnowledgeChunk"
@@ -160,7 +198,7 @@ async def hybrid_search(query: str, user_id: str, limit: int = 10, params: Dict 
     expanded_text = expanded_query.get("expanded_query", query)
     
     # Create embedding for the expanded query
-    from api.db.embeddings_client import generate_embeddings
+    from db.embeddings_client import generate_embeddings
     query_embedding = await generate_embeddings([expanded_text])[0]
     
     # Build filter for user security

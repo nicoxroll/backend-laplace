@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, Form
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 import os
@@ -6,12 +6,13 @@ import uuid
 from pydantic import BaseModel
 from datetime import datetime
 
+
 # These would need to be implemented in their respective files
-from ..dependencies.auth import get_current_user
-from ..services.file_processor import process_file_with_rope
-from ..services.vector_optimizer import optimize_vectors
-from ..db.weaviate_client import store_vectors_in_weaviate
-from ..db.redis_client import update_processing_status, get_processing_status
+from dependencies.auth import get_current_user
+from services.file_processor import process_file_with_rope
+from services.vector_optimizer import optimize_vectors
+from db.weaviate_client import store_vectors_in_weaviate
+from db.redis_client import update_processing_status, get_processing_status
 
 # Define response models
 class FileUploadResponse(BaseModel):
@@ -201,7 +202,7 @@ async def search_knowledge(
     Search through knowledge base using hybrid search (vector + keywords)
     """
     # Get results from Weaviate
-    from ..db.weaviate_client import hybrid_search
+    from db.weaviate_client import hybrid_search
     
     filters = {
         "filename": search_query.filename,
@@ -224,7 +225,7 @@ async def list_processing_jobs(
     """
     List all file processing jobs for the current user
     """
-    from ..db.redis_client import list_user_jobs
+    from db.redis_client import list_user_jobs
     
     jobs = list_user_jobs(current_user["id"])
     
