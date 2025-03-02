@@ -2,7 +2,7 @@
 
 Laplace is an advanced RAG (Retrieval-Augmented Generation) platform designed for developers and teams to analyze codebases, documentation, and knowledge repositories with natural language queries. The system integrates with GitHub/GitLab and supports document processing to create an intelligent assistant tailored to your specific context.
 
-![Laplace Architecture](graph.mermaid)
+[Laplace Architecture](graph.mermaid)
 
 ## System Overview
 
