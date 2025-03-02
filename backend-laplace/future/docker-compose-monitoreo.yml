@@ -1,0 +1,134 @@
+
+version: '3.8'
+
+services:
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - POSTGRES_URL=postgresql://user:password@postgres/laplace
+      - REDIS_URL=redis://redis:6379
+      - WEAVIATE_URL=http://weaviate:8080
+      - OLLAMA_ENDPOINT=http://ollama:11434
+      - BERT_SERVICE=http://bert-service:5000
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_SECRET=${GITHUB_SECRET}
+      - GITLAB_CLIENT_ID=${GITLAB_CLIENT_ID}
+      - GITLAB_SECRET=${GITLAB_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: laplace
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d laplace"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  weaviate:
+    image: semitechnologies/weaviate:1.24.1
+    ports:
+      - "8080:8080"
+    environment:
+      - DEFAULT_VECTORIZER_MODULE=text2vec-transformers
+      - ENABLE_MODULES=text2vec-transformers
+      - TRANSFORMERS_INFERENCE_API=http://transformers:8080
+      - CLUSTER_HOSTNAME=node1
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    depends_on:
+      transformers:
+        condition: service_started
+
+  transformers:
+    image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-mpnet-base-dot-v1
+    environment:
+      ENABLE_CUDA: 0
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    command: >
+      sh -c "ollama serve &
+             sleep 15 &&
+             ollama pull llama3:70b &&
+             ollama pull deepseek-coder:33b &&
+             ollama pull llama2:13b &&
+             wait"
+
+  bert-service:
+    build:
+      context: ./bert-service
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - MODEL_NAME=bert-base-uncased
+      - MAX_SEQ_LENGTH=512
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+
+      # docker-compose.yaml (Adiciones)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+
+  tempo:
+    image: grafana/tempo:latest
+    ports:
+      - "3200:3200"
+
+volumes:
+  postgres_data:
+  weaviate_data:
+  redis_data:
+  ollama_data:
+
+networks:
+  default:
+    name: laplace_net
+    driver: bridge
