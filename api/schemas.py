@@ -30,6 +30,7 @@ class UserResponse(UserBase):
 class AgentBase(BaseModel):
     name: str
     is_private: bool = True
+    is_system_agent: bool = False  # Añadir campo
     description: Optional[str] = None
     api_url: Optional[str] = None
 
@@ -138,8 +139,25 @@ class KnowledgeBaseBase(BaseModel):
     name: str
     vector_config: Optional[Dict[str, Any]] = None
 
-class KnowledgeBaseCreate(KnowledgeBaseBase):
-    pass
+class KnowledgeBaseCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    vector_config: Optional[Dict[str, Any]] = None
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    vector_config: Optional[Dict[str, Any]] = None
+
+class KnowledgeBaseResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    description: Optional[str] = None
+    vector_config: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        orm_mode = True
 
 class KnowledgeBaseResponse(KnowledgeBaseBase):
     id: int
@@ -174,6 +192,62 @@ class UserSettingsResponse(UserSettingsBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
+    model_config = {
+        "from_attributes": True
+    }
+
+# Añadir estas clases para autenticación
+class AuthRequest(BaseModel):
+    provider_user_id: str
+    provider: str
+    username: str
+    email: Optional[str] = ""  # Proporcionar valores por defecto
+    name: Optional[str] = ""
+    avatar: Optional[str] = ""
+    access_token: Optional[str] = None
+
+class AuthResponse(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    avatar: Optional[str] = None
+    provider: str
+    
+    model_config = {
+        "from_attributes": True
+    }
+
+# Añadir al final del archivo
+
+class KnowledgeBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    slug: Optional[str] = None
+    is_system_base: bool = False
+    vector_config: Optional[Dict[str, Any]] = None
+
+class KnowledgeBaseResponse(KnowledgeBase):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    model_config = {
+        "from_attributes": True
+    }
+
+class Knowledge(BaseModel):
+    name: str
+    content_hash: str
+    vector_ids: Optional[Dict[str, Any]] = None
+
+class KnowledgeResponse(Knowledge):
+    id: int
+    user_id: int
+    base_id: Optional[int] = None
+    created_at: datetime
+    
     model_config = {
         "from_attributes": True
     }

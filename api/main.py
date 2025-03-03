@@ -53,10 +53,16 @@ app.add_middleware(
 add_error_handlers(app)
 
 # Importar las rutas
-from routers import auth, knowledge, users
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
+from routers import auth, knowledge, users, agents, chats
+from routers.system_agents import router as system_agents_router
+from routers.user_knowledge import router as user_knowledge_router
+
+app.include_router(auth.router)
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
 app.include_router(users.router, prefix="/users", tags=["users"])
+app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
+app.include_router(system_agents_router, prefix="/api/system-agents", tags=["system_agents"])
+app.include_router(user_knowledge_router, prefix="/api/users", tags=["user_knowledge"])
 
 @app.get("/")
 def read_root():

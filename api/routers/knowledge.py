@@ -1,11 +1,11 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks, Form, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
 import uuid
 from pydantic import BaseModel
 from datetime import datetime
-
 
 # These would need to be implemented in their respective files
 from dependencies.auth import get_current_user
@@ -13,6 +13,9 @@ from services.file_processor import process_file_with_rope
 from services.vector_optimizer import optimize_vectors
 from db.weaviate_client import store_vectors_in_weaviate
 from db.redis_client import update_processing_status, get_processing_status
+from database.db import get_db
+from models import Knowledge, User, KnowledgeBase
+from schemas import KnowledgeResponse, KnowledgeBaseResponse
 
 # Define response models
 class FileUploadResponse(BaseModel):
@@ -237,4 +240,95 @@ async def list_processing_jobs(
             created_at=job.get("created_at") or datetime.now()
         ) for job in jobs
     ]
+
+@router.get("/by_user/{user_id}", response_model=List[KnowledgeResponse])
+async def get_knowledge_by_user(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los conocimientos de un usuario específico.
+    Solo el propio usuario o un administrador pueden acceder.
+    """
+    # Verificar permisos
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403, 
+            detail="No tienes permiso para ver estos conocimientos"
+        )
+    
+    knowledge_items = db.query(Knowledge).filter(
+        Knowledge.user_id == user_id
+    ).offset(offset).limit(limit).all()
+    
+    return knowledge_items
+
+@router.get("/bases/by_user/{user_id}", response_model=List[KnowledgeBaseResponse])
+async def get_knowledge_bases_by_user(
+    user_id: int,
+    include_system: bool = Query(True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todas las bases de conocimiento de un usuario específico.
+    Con opción de incluir las bases del sistema.
+    """
+    # Verificar permisos
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403, 
+            detail="No tienes permiso para ver estas bases de conocimiento"
+        )
+    
+    # Crear consulta base
+    query = db.query(KnowledgeBase)
+    
+    if include_system:
+        # Incluir bases del usuario y bases del sistema
+        query = query.filter(
+            (KnowledgeBase.user_id == user_id) | 
+            (KnowledgeBase.is_system_base == True)
+        )
+    else:
+        # Solo bases del usuario
+        query = query.filter(KnowledgeBase.user_id == user_id)
+    
+    knowledge_bases = query.all()
+    return knowledge_bases
+
+@router.get("/bases/{base_id}/knowledge", response_model=List[KnowledgeResponse])
+async def get_knowledge_by_base(
+    base_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todo el conocimiento asociado a una base específica.
+    Verificando permisos de acceso.
+    """
+    # Primero obtener la base para verificar permisos
+    knowledge_base = db.query(KnowledgeBase).filter(KnowledgeBase.id == base_id).first()
+    
+    if not knowledge_base:
+        raise HTTPException(status_code=404, detail="Base de conocimiento no encontrada")
+    
+    # Verificar permisos
+    if (knowledge_base.user_id != current_user.id and 
+        not knowledge_base.is_system_base and 
+        not current_user.is_superuser):
+        raise HTTPException(
+            status_code=403, 
+            detail="No tienes permiso para acceder a esta base de conocimiento"
+        )
+    
+    # Obtener los conocimientos asociados a la base
+    knowledge_items = db.query(Knowledge).filter(
+        Knowledge.base_id == base_id
+    ).all()
+    
+    return knowledge_items
 

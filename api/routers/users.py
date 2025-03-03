@@ -97,7 +97,6 @@ async def get_user_by_provider(
 async def create_user(user: UserCreate, db: Session = Depends(get_db)):
     # Verificar si el usuario ya existe
     existing_user = db.query(User).filter(
-        (User.provider == user.provider) & 
         (User.provider_user_id == user.provider_user_id)
     ).first()
     

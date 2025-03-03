@@ -24,9 +24,9 @@ async def create_chat(request: dict, db: Session = Depends(get_db)):
     return chat
 
 @router.post("/chats/{chat_id}/messages", response_model=ChatMessage)
-async def send_message(chat_id: str, request: dict, db: Session = Depends(get_db)):
-    # Check if chat exists
-    chat = await db.query(Chat).filter(Chat.id == chat_id).first()
+async def send_message(chat_id: int, request: dict, db: Session = Depends(get_db)):
+    # Asegúrate de que chat_id sea del tipo correcto
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
