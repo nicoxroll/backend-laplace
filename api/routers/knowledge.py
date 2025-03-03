@@ -15,7 +15,7 @@ from db.weaviate_client import store_vectors_in_weaviate
 from db.redis_client import update_processing_status, get_processing_status
 from database.db import get_db
 from models import Knowledge, User, KnowledgeBase
-from schemas import KnowledgeResponse, KnowledgeBaseResponse
+from schemas import KnowledgeResponse, KnowledgeBaseResponse, KnowledgeCreate
 
 # Define response models
 class FileUploadResponse(BaseModel):
@@ -331,4 +331,181 @@ async def get_knowledge_by_base(
     ).all()
     
     return knowledge_items
+
+@router.post("/user/{user_id}/item", response_model=KnowledgeResponse)
+async def add_knowledge_to_user(
+    user_id: int,
+    knowledge_item: KnowledgeCreate,
+    base_id: Optional[int] = Query(None, description="ID de la base de conocimiento"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Añade un nuevo elemento de conocimiento para un usuario específico.
+    Puede asociarse opcionalmente a una base de conocimiento existente.
+    """
+    # Verificar permisos
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403, 
+            detail="No tienes permiso para añadir conocimiento a este usuario"
+        )
+    
+    # Verificar si la base de conocimiento existe (si se proporcionó)
+    if base_id:
+        kb = db.query(KnowledgeBase).filter(
+            KnowledgeBase.id == base_id,
+            (KnowledgeBase.user_id == user_id) | (KnowledgeBase.is_system_base == True)
+        ).first()
+        
+        if not kb:
+            raise HTTPException(
+                status_code=404,
+                detail="Base de conocimiento no encontrada o no pertenece al usuario"
+            )
+    
+    # Verificar si ya existe un conocimiento con el mismo nombre
+    existing = db.query(Knowledge).filter(
+        Knowledge.user_id == user_id,
+        Knowledge.name == knowledge_item.name
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un conocimiento con este nombre para este usuario"
+        )
+    
+    # Crear hash de contenido para verificar duplicados
+    import hashlib
+    content_string = str(knowledge_item.vector_ids or {})
+    content_hash = hashlib.md5(content_string.encode()).hexdigest()
+    
+    # Crear el nuevo item de conocimiento
+    new_knowledge = Knowledge(
+        user_id=user_id,
+        name=knowledge_item.name,
+        vector_ids=knowledge_item.vector_ids or {},
+        content_hash=content_hash,
+        base_id=base_id
+    )
+    
+    db.add(new_knowledge)
+    db.commit()
+    db.refresh(new_knowledge)
+    
+    return new_knowledge
+
+# Endpoint para recursos del usuario actual
+@router.post("/knowledge", response_model=KnowledgeResponse)
+async def add_my_knowledge(
+    knowledge_item: KnowledgeCreate,
+    base_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Añade conocimiento al usuario autenticado"""
+    # Usar el ID del token directamente
+    user_id = current_user.id
+    # Verificar si la base de conocimiento existe (si se proporcionó)
+    if base_id:
+        kb = db.query(KnowledgeBase).filter(
+            KnowledgeBase.id == base_id,
+            (KnowledgeBase.user_id == user_id) | (KnowledgeBase.is_system_base == True)
+        ).first()
+        
+        if not kb:
+            raise HTTPException(
+                status_code=404,
+                detail="Base de conocimiento no encontrada o no pertenece al usuario"
+            )
+    
+    # Verificar si ya existe un conocimiento con el mismo nombre
+    existing = db.query(Knowledge).filter(
+        Knowledge.user_id == user_id,
+        Knowledge.name == knowledge_item.name
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un conocimiento con este nombre para este usuario"
+        )
+    
+    # Crear hash de contenido para verificar duplicados
+    import hashlib
+    content_string = str(knowledge_item.vector_ids or {})
+    content_hash = hashlib.md5(content_string.encode()).hexdigest()
+    
+    # Crear el nuevo item de conocimiento
+    new_knowledge = Knowledge(
+        user_id=user_id,
+        name=knowledge_item.name,
+        vector_ids=knowledge_item.vector_ids or {},
+        content_hash=content_hash,
+        base_id=base_id
+    )
+    
+    db.add(new_knowledge)
+    db.commit()
+    db.refresh(new_knowledge)
+    
+    return new_knowledge
+
+# Endpoint para recursos de cualquier usuario (admin)
+@router.post("/users/{user_id}/knowledge", response_model=KnowledgeResponse)
+async def add_user_knowledge(
+    user_id: int,
+    knowledge_item: KnowledgeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Permite a administradores gestionar conocimiento de otros usuarios"""
+    # Verificar que sea admin o el mismo usuario
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Operación no permitida")
+    # Verificar si la base de conocimiento existe (si se proporcionó)
+    if base_id:
+        kb = db.query(KnowledgeBase).filter(
+            KnowledgeBase.id == base_id,
+            (KnowledgeBase.user_id == user_id) | (KnowledgeBase.is_system_base == True)
+        ).first()
+        
+        if not kb:
+            raise HTTPException(
+                status_code=404,
+                detail="Base de conocimiento no encontrada o no pertenece al usuario"
+            )
+    
+    # Verificar si ya existe un conocimiento con el mismo nombre
+    existing = db.query(Knowledge).filter(
+        Knowledge.user_id == user_id,
+        Knowledge.name == knowledge_item.name
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un conocimiento con este nombre para este usuario"
+        )
+    
+    # Crear hash de contenido para verificar duplicados
+    import hashlib
+    content_string = str(knowledge_item.vector_ids or {})
+    content_hash = hashlib.md5(content_string.encode()).hexdigest()
+    
+    # Crear el nuevo item de conocimiento
+    new_knowledge = Knowledge(
+        user_id=user_id,
+        name=knowledge_item.name,
+        vector_ids=knowledge_item.vector_ids or {},
+        content_hash=content_hash,
+        base_id=base_id
+    )
+    
+    db.add(new_knowledge)
+    db.commit()
+    db.refresh(new_knowledge)
+    
+    return new_knowledge
 

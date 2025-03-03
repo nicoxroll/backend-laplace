@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from models import Chat, ChatMessage
 from database.db import get_db
-from utils.weaviate_client import search_hybrid
-from utils.redis_client import cache
+from db.weaviate_client import hybrid_search
+from db.redis_client import cache_chunks
 from utils.ollama_client import generate_response
 import uuid
 from typing import List
@@ -32,11 +32,11 @@ async def send_message(chat_id: int, request: dict, db: Session = Depends(get_db
     
     cache_key = f"chat:{chat_id}:message:{request['content']}"
     
-    if cached := await cache.get(cache_key):
+    if cached := await cache_chunks.get(cache_key):
         return cached
     
     # Search context from Weaviate
-    context = await search_hybrid(request)
+    context = await hybrid_search(request)
     
     # Generate AI response
     ai_response = await generate_response(context, request)
@@ -64,7 +64,7 @@ async def send_message(chat_id: int, request: dict, db: Session = Depends(get_db
     await db.commit()
     
     # Cache the response
-    await cache.set(cache_key, ai_message, 3600)
+    await cache_chunks.set(cache_key, ai_message, 3600)
     
     return ai_message
 

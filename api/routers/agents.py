@@ -5,7 +5,7 @@ from typing import List
 
 from database.db import get_db
 from models import Agent, AgentKnowledge, User
-from schemas import AgentResponse
+from schemas import AgentResponse, AgentCreate
 from dependencies.auth import get_current_user
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -107,3 +107,81 @@ async def get_user_agents(
     ).all()
     
     return agents
+
+@router.get("/all/{user_id}", response_model=List[AgentResponse])
+async def get_all_user_agents(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los agentes disponibles para un usuario específico:
+    - Sus agentes personalizados
+    - Agentes del sistema
+    """
+    # Verificar permisos (solo el mismo usuario o admin)
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver estos agentes")
+    
+    # Obtener todos los agentes disponibles para el usuario:
+    # - Los que pertenecen al usuario específicamente
+    # - Los agentes del sistema (disponibles para todos)
+    agents = db.query(Agent).filter(
+        (Agent.user_id == user_id) | (Agent.is_system_agent == True)
+    ).all()
+    
+    return agents
+
+@router.get("/me", response_model=List[AgentResponse])
+async def get_my_agents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Obtiene todos los agentes personalizados del usuario autenticado.
+    Usa implícitamente el token JWT para identificar al usuario.
+    """
+    agents = db.query(Agent).filter(
+        Agent.user_id == current_user.id,
+        Agent.is_system_agent == False
+    ).all()
+    
+    return agents
+
+@router.post("/me", response_model=AgentResponse)
+async def create_my_agent(
+    agent: AgentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Crea un nuevo agente para el usuario autenticado.
+    """
+    # Verificar que el knowledge_id pertenezca al usuario o sea del sistema
+    knowledge_base = db.query(KnowledgeBase).filter(
+        KnowledgeBase.id == agent.knowledge_id,
+        (KnowledgeBase.user_id == current_user.id) | (KnowledgeBase.is_system_base == True)
+    ).first()
+    
+    if not knowledge_base:
+        raise HTTPException(
+            status_code=404,
+            detail="Base de conocimiento no encontrada o no tienes acceso"
+        )
+    
+    new_agent = Agent(
+        user_id=current_user.id,
+        name=agent.name,
+        description=agent.description,
+        is_private=agent.is_private,
+        is_system_agent=False,  # Un usuario no puede crear agentes del sistema
+        api_path=agent.api_url,
+        knowledge_id=agent.knowledge_id,
+        model="gpt-4o"  # Valor por defecto
+    )
+    
+    db.add(new_agent)
+    db.commit()
+    db.refresh(new_agent)
+    
+    return new_agent

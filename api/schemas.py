@@ -26,7 +26,21 @@ class UserResponse(UserBase):
         "from_attributes": True
     }
 
+class UserProfileResponse(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    avatar: Optional[str] = None
+    is_superuser: bool = False
+    is_system_user: bool = False
+    
+    model_config = {
+        "from_attributes": True
+    }
+
 # Agent schemas
+
 class AgentBase(BaseModel):
     name: str
     is_private: bool = True
@@ -85,16 +99,18 @@ class RepositoryResponse(RepositoryBase):
 
 # Chat schemas
 class ChatBase(BaseModel):
-    agent_id: Optional[int] = None
     title: Optional[str] = None
 
 class ChatCreate(ChatBase):
-    pass
+    user_id: int
+    agent_id: Optional[int] = None
 
 class ChatResponse(ChatBase):
     id: int
     user_id: int
+    agent_id: Optional[int] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     model_config = {
         "from_attributes": True
@@ -157,7 +173,7 @@ class KnowledgeBaseResponse(BaseModel):
     vector_config: Optional[Dict[str, Any]] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KnowledgeBaseResponse(KnowledgeBaseBase):
     id: int

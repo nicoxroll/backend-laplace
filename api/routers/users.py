@@ -9,8 +9,10 @@ from datetime import datetime
 # Importaciones internas
 from database.db import get_db
 from models import User, UserSettings, Chat
+from dependencies.auth import get_current_user
+
 # Importar el esquema Pydantic correcto de schemas.py
-from schemas import UserSettingsResponse
+from schemas import UserSettingsResponse, UserProfileResponse
 
 router = APIRouter()
 
@@ -92,6 +94,21 @@ async def get_user_by_provider(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+@router.get("/profile", response_model=UserProfileResponse)
+async def get_user_profile(current_user: User = Depends(get_current_user)):
+    """Obtiene el perfil del usuario autenticado"""
+    # Convertir explícitamente a dict para evitar problemas de serialización
+    user_dict = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "name": current_user.name,
+        "avatar": current_user.avatar,
+        "is_superuser": current_user.is_superuser,
+        "is_system_user": current_user.is_system_user
+    }
+    return user_dict
 
 @router.post("/", response_model=UserResponse)
 async def create_user(user: UserCreate, db: Session = Depends(get_db)):

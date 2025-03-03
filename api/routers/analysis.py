@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from models import AnalysisResult
 from database.db import get_db
-from utils.weaviate_client import search_hybrid
-from utils.redis_client import cache
+from db.weaviate_client import hybrid_search
+from db.redis_client import cache_chunks
 from utils.ollama_client import generate_response
 import uuid
 from datetime import datetime
@@ -15,12 +15,12 @@ router = APIRouter()
 async def analyze_endpoint(request: dict, db: Session = Depends(get_db)):
     cache_key = f"analysis:{request['query']}"
     
-    if cached := await cache.get(cache_key):
+    if cached := await cache_chunks.get(cache_key):
         return cached
     
     try:
         # Lógica de análisis usando Weaviate y Ollama
-        context = await search_hybrid(request)
+        context = await hybrid_search(request)
         response = await generate_response(context, request)
         
         # Guardar en PostgreSQL
@@ -36,7 +36,7 @@ async def analyze_endpoint(request: dict, db: Session = Depends(get_db)):
         await db.refresh(analysis)
         
         # Cachear respuesta
-        await cache.set(cache_key, response, 3600)
+        await cache_chunks.set(cache_key, response, 3600)
         
         return response
     except Exception as e:

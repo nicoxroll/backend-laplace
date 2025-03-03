@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from database.db import get_db
 from models import Agent, KnowledgeBase, User
 from schemas import AgentResponse
-from dependencies.auth import get_current_user, get_optional_user
+from dependencies.auth import get_current_user
 
 router = APIRouter(tags=["system_agents"])
 
@@ -49,7 +49,7 @@ async def query_system_agent(
     agent_id: int, 
     query_request: QueryRequest = Body(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_optional_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Envía una consulta a un agente del sistema

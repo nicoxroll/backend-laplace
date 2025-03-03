@@ -53,7 +53,7 @@ app.add_middleware(
 add_error_handlers(app)
 
 # Importar las rutas
-from routers import auth, knowledge, users, agents, chats
+from routers import auth, knowledge, users, agents
 from routers.system_agents import router as system_agents_router
 from routers.user_knowledge import router as user_knowledge_router
 
