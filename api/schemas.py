@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
 
@@ -61,19 +61,41 @@ class AgentResponse(AgentBase):
         "from_attributes": True
     }
 
-# Knowledge schemas
+# Knowledge schemas - Consolidated version
 class KnowledgeBase(BaseModel):
     name: str
-    vector_ids: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+    slug: Optional[str] = None
+    is_system_base: bool = False
+    vector_config: Optional[Dict[str, Any]] = None
 
 class KnowledgeCreate(KnowledgeBase):
     pass
 
-class KnowledgeResponse(KnowledgeBase):
+class KnowledgeBaseResponse(KnowledgeBase):
     id: int
     user_id: int
     created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    model_config = {
+        "from_attributes": True
+    }
 
+class Knowledge(BaseModel):
+    name: str
+    vector_ids: Optional[Union[str, Dict[str, str]]] = None
+
+class KnowledgeCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    content: str  # Campo obligatorio para generar el hash
+
+class KnowledgeResponse(Knowledge):
+    id: int
+    user_id: int
+    created_at: datetime
+    
     model_config = {
         "from_attributes": True
     }
@@ -175,15 +197,6 @@ class KnowledgeBaseResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class KnowledgeBaseResponse(KnowledgeBaseBase):
-    id: int
-    user_id: int
-    created_at: datetime
-
-    model_config = {
-        "from_attributes": True
-    }
-
 # Auth schemas
 class Token(BaseModel):
     access_token: str
@@ -229,40 +242,6 @@ class AuthResponse(BaseModel):
     name: Optional[str] = None
     avatar: Optional[str] = None
     provider: str
-    
-    model_config = {
-        "from_attributes": True
-    }
-
-# Añadir al final del archivo
-
-class KnowledgeBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-    slug: Optional[str] = None
-    is_system_base: bool = False
-    vector_config: Optional[Dict[str, Any]] = None
-
-class KnowledgeBaseResponse(KnowledgeBase):
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    model_config = {
-        "from_attributes": True
-    }
-
-class Knowledge(BaseModel):
-    name: str
-    content_hash: str
-    vector_ids: Optional[Dict[str, Any]] = None
-
-class KnowledgeResponse(Knowledge):
-    id: int
-    user_id: int
-    base_id: Optional[int] = None
-    created_at: datetime
     
     model_config = {
         "from_attributes": True

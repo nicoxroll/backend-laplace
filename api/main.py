@@ -14,11 +14,14 @@ from fastapi.responses import JSONResponse
 import uuid
 
 async def global_exception_handler(request: Request, exc: Exception):
+    # Convertir UUID a string
+    request_id = str(getattr(request.state, 'request_id', uuid.uuid4()))
+    
     return JSONResponse(
         status_code=500,
         content={
             "detail": "Error interno",
-            "request_id": getattr(request.state, 'request_id', str(uuid.uuid4())),
+            "request_id": request_id,  # Ahora es string
             "error_type": exc.__class__.__name__
         }
     )
@@ -52,17 +55,17 @@ app.add_middleware(
 # Agregar manejadores de errores
 add_error_handlers(app)
 
-# Importar las rutas
+# Importar las rutas (elimino user_knowledge_router)
 from routers import auth, knowledge, users, agents
 from routers.system_agents import router as system_agents_router
-from routers.user_knowledge import router as user_knowledge_router
 
 app.include_router(auth.router)
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(system_agents_router, prefix="/api/system-agents", tags=["system_agents"])
-app.include_router(user_knowledge_router, prefix="/api/users", tags=["user_knowledge"])
+# Se elimina esta línea:
+# app.include_router(user_knowledge_router, prefix="/api/users", tags=["user_knowledge"])
 
 @app.get("/")
 def read_root():

@@ -39,14 +39,21 @@ class User(BaseModel):
 class KnowledgeBase(BaseModel):
     __tablename__ = "knowledge_bases"
     
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    description = Column(Text)
-    vector_config = Column(JSON, default={"type": "system"})
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     is_system_base = Column(Boolean, default=False)
-
-    user = relationship("User", back_populates="knowledge_bases")
+    
+    # Relación existente
+    knowledge_items = relationship("Knowledge", back_populates="base")
+    
+    # Agregar esta relación que falta
     agents = relationship("Agent", back_populates="knowledge_base")
+    
+    user = relationship("User", back_populates="knowledge_bases")
+    
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uq_user_kb_name'),
+    )
 
 class Agent(BaseModel):
     __tablename__ = "agents"
@@ -69,14 +76,16 @@ class Knowledge(BaseModel):
     
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    vector_ids = Column(JSON)
-    content_hash = Column(String(64), unique=True)
-
+    base_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=True)
+    content_hash = Column(String(64), nullable=False)
+    vector_ids = Column(JSON, nullable=True)
+    
+    # Esta relación ya estaba correcta
     user = relationship("User", back_populates="knowledge_items")
-
+    base = relationship("KnowledgeBase", back_populates="knowledge_items")
+    
     __table_args__ = (
-        Index('ix_knowledge_content_hash', 'content_hash'),
-        UniqueConstraint('user_id', 'name', name='uq_user_knowledge_name')
+        UniqueConstraint('user_id', 'name', name='uq_user_knowledge_name'),
     )
 
 class AgentKnowledge(Base, TimestampMixin):

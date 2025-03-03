@@ -8,8 +8,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "Laplace API"
     ENVIRONMENT: str = "development"
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/laplace"
-    SECRET_KEY: str = "laplace_secret_key"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
+    SECRET_KEY: str = "your-secret-key"  # Cambia esto por una clave segura real
+    ALGORITHM: str = "HS256"  # Añadir algoritmo JWT faltante
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REDIS_URL: str = "redis://localhost:6379/0"
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672"
     WEAVIATE_URL: str = "http://localhost:8080"

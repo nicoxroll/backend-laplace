@@ -64,14 +64,19 @@ class UserSettingsResponse(BaseModel):
     }
 
 # Endpoints
-@router.get("/", response_model=List[UserResponse])
-async def get_users(
-    skip: int = 0, 
-    limit: int = 100, 
-    db: Session = Depends(get_db)
-):
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
+# Rutas específicas primero
+@router.get("/profile", response_model=None)  # Temporalmente sin validación
+async def get_user_profile(current_user: User = Depends(get_current_user)):
+    """Obtiene el perfil del usuario autenticado"""
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": getattr(current_user, "email", None),
+        "name": getattr(current_user, "name", None),
+        "avatar": getattr(current_user, "avatar", None),
+        "is_superuser": getattr(current_user, "is_superuser", False),
+        "is_system_user": getattr(current_user, "is_system_user", False)
+    }
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: int, db: Session = Depends(get_db)):
@@ -94,21 +99,6 @@ async def get_user_by_provider(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
-@router.get("/profile", response_model=UserProfileResponse)
-async def get_user_profile(current_user: User = Depends(get_current_user)):
-    """Obtiene el perfil del usuario autenticado"""
-    # Convertir explícitamente a dict para evitar problemas de serialización
-    user_dict = {
-        "id": current_user.id,
-        "username": current_user.username,
-        "email": current_user.email,
-        "name": current_user.name,
-        "avatar": current_user.avatar,
-        "is_superuser": current_user.is_superuser,
-        "is_system_user": current_user.is_system_user
-    }
-    return user_dict
 
 @router.post("/", response_model=UserResponse)
 async def create_user(user: UserCreate, db: Session = Depends(get_db)):
