@@ -131,16 +131,23 @@ def init_schema():
 
 def store_vectors_in_weaviate(vectors: List[Dict[str, Any]], metadata: Dict[str, Any]):
     """
-    Store vector embeddings in Weaviate
+    Store vector embeddings in Weaviate and return the generated UUIDs
     """
     # Initialize schema if needed
     init_schema()
+    
+    # Para almacenar los UUIDs generados
+    generated_ids = []
     
     # Prepare batch processing
     with client.batch as batch:
         batch.batch_size = 100
         
         for i, vector in enumerate(vectors):
+            # Generate a UUID based on content to avoid duplicates
+            object_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{metadata['user_id']}-{vector['content']}"))
+            generated_ids.append(object_id)  # Guardar ID
+            
             # Prepare properties
             properties = {
                 "content": vector["content"],
@@ -159,9 +166,6 @@ def store_vectors_in_weaviate(vectors: List[Dict[str, Any]], metadata: Dict[str,
             # Add embedding vector
             embedding = np.array(vector["embedding"])
             
-            # Generate a UUID based on content to avoid duplicates
-            object_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{metadata['user_id']}-{vector['content']}"))
-            
             # Add object to batch
             batch.add_data_object(
                 data_object=properties,
@@ -169,6 +173,9 @@ def store_vectors_in_weaviate(vectors: List[Dict[str, Any]], metadata: Dict[str,
                 uuid=object_id,
                 vector=embedding.tolist()
             )
+            
+    # Devolver los IDs generados
+    return generated_ids
 
 def reciprocal_rank_fusion(results: list, k: int = 60):
     """

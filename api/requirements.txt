@@ -49,3 +49,28 @@ python-multipart>=0.0.5
 email-validator>=2.0.0
 
 loguru>=0.6.0
+
+# Procesadores de documentos adicionales
+python-docx>=0.8.11        # Para archivos Word (.docx)
+openpyxl>=3.1.0            # Para archivos Excel (.xlsx)
+beautifulsoup4>=4.11.0     # Para procesar HTML
+markdown>=3.4.0            # Para archivos Markdown
+
+# Optimización de procesamiento
+joblib>=1.2.0              # Para paralelización de tareas
+tqdm>=4.64.0               # Para barras de progreso
+aiofiles>=22.0.0           # Manejo asíncrono de archivos
+
+# Utilidades para archivos
+python-magic>=0.4.25       # Detección de tipos MIME
+filetype>=1.1.0            # Identificación de tipos de archivo
+
+# Procesamiento en segundo plano (opcional)
+celery>=5.2.7              # Si planeas usar procesamiento en background
+redis>=4.5.0               # Ya incluido (para Celery y caché)
+
+# Para chunking avanzado y procesamiento semántico
+unstructured>=0.7.0       # Procesamiento de documentos no estructurados
+nltk>=3.8.0              # Para análisis lingüístico y tokenización avanzada
+spacy>=3.5.0 
+aiofiles>=0.8.0            # Para procesamiento de lenguaje natural

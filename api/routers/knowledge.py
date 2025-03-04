@@ -20,6 +20,15 @@ from models import Knowledge, User, KnowledgeBase
 from schemas import (KnowledgeResponse, KnowledgeBaseResponse, KnowledgeCreate,
                      KnowledgeBaseCreate, KnowledgeBaseUpdate)
 
+# Añadir imports necesarios
+import asyncio
+import shutil
+from fastapi import Body
+
+# Importar utilidades de procesamiento
+from utils.document_processor import process_document
+from utils.file_handler import TempFileManager
+
 # Define response models
 class FileUploadResponse(BaseModel):
     job_id: str
@@ -602,49 +611,104 @@ async def delete_knowledge_base(
 
 # === FILE UPLOAD ENDPOINTS ===
 
+# Endpoint para cargar archivos
 @router.post("/upload", response_model=FileUploadResponse)
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    base_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Sube un archivo para ser procesado e indexado"""
+    # Validación básica
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No se recibió ningún archivo")
+    
+    # Crear identificador único y gestor de archivos
     job_id = str(uuid.uuid4())
+    file_manager = TempFileManager()
     
-    # Crear directorio temporal si no existe
-    os.makedirs("./temp", exist_ok=True)
-    
-    # Guardar archivo en directorio temporal
-    file_path = f"./temp/{file.filename}"
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-    
-    # Programar tarea en segundo plano
-    background_tasks.add_task(
-        process_and_store_file,
-        file_path=file_path,
-        file_name=file.filename,
-        content_type=file.content_type,
-        user_id=current_user.id,
-        job_id=job_id
-    )
-    
-    # Crear estado inicial en Redis
-    update_processing_status(job_id, {
-        "status": "processing",
-        "progress": 0.0,
-        "message": "Archivo recibido, comenzando procesamiento",
-        "filename": file.filename,
-        "user_id": current_user.id
-    })
-    
-    return FileUploadResponse(
-        job_id=job_id,
-        filename=file.filename,
-        status="processing",
-        created_at=datetime.now()
-    )
+    try:
+        # Crear archivo temporal con extensión apropiada
+        extension = os.path.splitext(file.filename)[1]
+        temp_file_path = file_manager.create_temp_file(prefix=f"upload_{job_id}_", suffix=extension)
+        
+        # Guardar contenido
+        file_size = 0
+        async with aiofiles.open(temp_file_path, 'wb') as f:
+            while chunk := await file.read(8192):  # 8kb chunks
+                await f.write(chunk)
+                file_size += len(chunk)
+        
+        # Validar tamaño máximo (10MB)
+        if file_size > 10 * 1024 * 1024:
+            file_manager.cleanup()
+            raise HTTPException(status_code=400, detail="Archivo demasiado grande (máximo 10MB)")
+        
+        # Configurar estado inicial
+        metadata = {
+            "user_id": current_user.id,
+            "filename": file.filename,
+            "base_id": base_id,
+            "file_size": file_size,
+            "content_type": file.content_type,
+            "temp_file_path": temp_file_path,
+            "file_manager": file_manager  # Pasar el gestor para limpieza
+        }
+        
+        update_processing_status(job_id, {
+            "status": "received",
+            "progress": 0.0,
+            "message": "Archivo recibido, iniciando procesamiento",
+            "filename": file.filename,
+            "user_id": current_user.id,
+            "created_at": datetime.now().isoformat()
+        })
+        
+        # Iniciar procesamiento en segundo plano
+        background_tasks.add_task(
+            process_file_background,
+            temp_file_path,
+            metadata,
+            job_id
+        )
+        
+        return FileUploadResponse(
+            job_id=job_id,
+            filename=file.filename,
+            status="processing",
+            created_at=datetime.now()
+        )
+        
+    except Exception as e:
+        # Limpiar recursos en caso de error
+        file_manager.cleanup()
+        
+        logger.error(f"Error en carga de archivo: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al procesar el archivo: {str(e)}"
+        )
+
+# Función para ejecutar el procesamiento en segundo plano
+async def process_file_background(file_path: str, metadata: Dict[str, Any], job_id: str):
+    try:
+        # Procesar documento
+        await process_document(file_path, metadata, job_id)
+    except Exception as e:
+        logger.error(f"Error en procesamiento background: {str(e)}")
+        update_processing_status(job_id, {
+            "status": "failed",
+            "message": f"Error: {str(e)}"
+        })
+    finally:
+        # Limpiar archivo temporal
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            logger.error(f"Error eliminando archivo temporal {file_path}: {e}")
 
 @router.get("/status/{job_id}", response_model=ProcessingStatus)
 async def check_processing_status(
@@ -686,7 +750,7 @@ async def get_job_status(
         )
     
     # Verificar que el trabajo pertenece al usuario actual
-    if str(status.get("user_id")) != str(current_user.id) and not current_user.is_superuser:
+    if str(status.get("user_id")) != str(current_user.id):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para ver este trabajo"
@@ -698,8 +762,9 @@ async def get_job_status(
         progress=status.get("progress", 0.0),
         message=status.get("message", ""),
         filename=status.get("filename", ""),
-        created_at=status.get("created_at", datetime.now()),
-        completed_at=status.get("completed_at")
+        created_at=status.get("created_at", datetime.now().isoformat()),
+        completed_at=status.get("completed_at"),
+        knowledge_id=status.get("knowledge_id")
     )
 
 @router.get("/jobs", response_model=List[FileUploadResponse])
@@ -770,8 +835,8 @@ async def process_and_store_file(file_path: str, file_name: str, content_type: s
             "message": "Almacenando en base de datos vectorial"
         })
         
-        # Almacenar en Weaviate
-        store_vectors_in_weaviate(vectors, {
+        # Almacenar en Weaviate y obtener IDs
+        vector_ids = store_vectors_in_weaviate(vectors, {
             "user_id": user_id,
             "filename": file_name,
             "job_id": job_id,
@@ -779,13 +844,34 @@ async def process_and_store_file(file_path: str, file_name: str, content_type: s
             "processed_at": datetime.now().isoformat()
         })
         
-        # Actualizar status como completado
-        update_processing_status(job_id, {
-            "status": "completed",
-            "progress": 1.0,
-            "message": "Procesamiento completado con éxito",
-            "completed_at": datetime.now().isoformat()
-        })
+        # Guardar en la base de datos SQL
+        db = SessionLocal()
+        try:
+            # Crear nuevo Knowledge con vector_ids
+            knowledge = Knowledge(
+                user_id=user_id,
+                name=file_name,
+                description=f"Archivo procesado: {file_name}",
+                content_hash=job_id,  # Usar job_id como content_hash o generar uno nuevo
+                vector_ids=vector_ids  # Aquí guardamos los IDs de Weaviate
+            )
+            db.add(knowledge)
+            db.commit()
+            
+            # Actualizar estado del trabajo con knowledge_id
+            update_processing_status(job_id, {
+                "status": "completed",
+                "progress": 1.0,
+                "message": "Procesamiento completado con éxito",
+                "completed_at": datetime.now().isoformat(),
+                "knowledge_id": knowledge.id
+            })
+            
+        except Exception as e:
+            db.rollback()
+            raise e
+        finally:
+            db.close()
         
     except Exception as e:
         # Log y actualizar estado en caso de error

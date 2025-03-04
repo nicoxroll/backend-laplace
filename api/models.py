@@ -72,15 +72,16 @@ class Agent(BaseModel):
     # Añadir esta relación para corregir el error
     chats = relationship("Chat", back_populates="agent")
 
+# Asegúrate que el modelo Knowledge tenga vector_ids
 class Knowledge(BaseModel):
     __tablename__ = "knowledge"
     
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)  # Añadir esta línea
+    description = Column(Text, nullable=True)
     base_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=True)
     content_hash = Column(String(64), nullable=False)
-    vector_ids = Column(JSON, nullable=True)
+    vector_ids = Column(JSON, nullable=True)  # Almacena los IDs de Weaviate
     
     user = relationship("User", back_populates="knowledge_items")
     base = relationship("KnowledgeBase", back_populates="knowledge_items")
