@@ -23,7 +23,7 @@ services:
       - laplace-network
     restart: on-failure
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health || exit 1"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -48,7 +48,7 @@ services:
       - laplace-network
     restart: on-failure
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      test: [ "CMD", "python", "-c", "import sys; sys.exit(0)" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,7 +65,7 @@ services:
       - laplace-network
     restart: on-failure
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -85,7 +85,7 @@ services:
     networks:
       - laplace-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -100,7 +100,7 @@ services:
     networks:
       - laplace-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -119,11 +119,11 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 30s      # Aumentado de 10s a 30s
-      timeout: 15s       # Aumentado de 5s a 15s
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 30s # Aumentado de 10s a 30s
+      timeout: 15s # Aumentado de 5s a 15s
       retries: 5
-      start_period: 60s  # Añadido periodo inicial de inicio
+      start_period: 60s # Añadido periodo inicial de inicio
     restart: unless-stopped
 
   weaviate:
@@ -132,7 +132,7 @@ services:
       - "8080:8080"
     environment:
       QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"  # Habilitar acceso anónimo
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true" # Habilitar acceso anónimo
       PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
       DEFAULT_VECTORIZER_MODULE: "text2vec-transformers"
       ENABLE_MODULES: "text2vec-transformers"
@@ -142,7 +142,7 @@ services:
     networks:
       - laplace-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready" ]
       interval: 15s
       timeout: 10s
       retries: 5

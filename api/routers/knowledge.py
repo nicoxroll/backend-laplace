@@ -29,6 +29,12 @@ from fastapi import Body
 from utils.document_processor import process_document
 from utils.file_handler import TempFileManager
 
+# Añadir cerca de los otros endpoints de knowledge items
+
+from typing import Dict, List
+# Asegúrate de importar también estos modelos
+from models import Agent, AgentKnowledgeItem
+
 # Define response models
 class FileUploadResponse(BaseModel):
     job_id: str
@@ -348,6 +354,41 @@ async def delete_knowledge_item(
     db.commit()
     
     return None
+
+@router.get("/items/agents-mapping", response_model=Dict[str, List[str]])
+async def get_knowledge_agents_mapping(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devuelve un mapeo de ID de conocimiento a nombres de agentes asociados.
+    Formato: {knowledge_id: [agent_name1, agent_name2, ...]}
+    """
+    # Obtener todos los items de conocimiento del usuario
+    knowledge_items = db.query(Knowledge).filter(
+        Knowledge.user_id == current_user.id
+    ).all()
+    
+    result = {}
+    
+    # Para cada item de conocimiento, obtener los agentes asociados
+    for knowledge in knowledge_items:
+        # Consulta los agentes asociados a este conocimiento
+        agents = db.query(Agent).join(
+            AgentKnowledgeItem,
+            Agent.id == AgentKnowledgeItem.agent_id
+        ).filter(
+            AgentKnowledgeItem.knowledge_id == knowledge.id
+        ).all()
+        
+        # Mapear los nombres de los agentes
+        agent_names = [agent.name for agent in agents]
+        
+        # Solo incluir en el resultado si hay agentes asociados
+        if agent_names:
+            result[str(knowledge.id)] = agent_names
+    
+    return result
 
 # === KNOWLEDGE BASES ENDPOINTS ===
 

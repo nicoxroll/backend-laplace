@@ -8,7 +8,8 @@ from tqdm import tqdm
 import joblib
 import numpy as np
 from datetime import datetime
-import magic
+
+# Solo mantener filetype:
 import filetype
 import json
 
@@ -28,8 +29,8 @@ from langchain_community.document_loaders.unstructured import UnstructuredFileLo
 
 # Base de datos
 from sqlalchemy.orm import Session
-from db.models import Knowledge
-from db.database import SessionLocal
+from models import Knowledge
+from database.db import SessionLocal
 from db.weaviate_client import store_vectors_in_weaviate, init_schema
 from db.embeddings_client import generate_embeddings
 
@@ -45,16 +46,18 @@ def download_resources():
 
 # Función para detectar el tipo de archivo
 def detect_file_type(file_path: str) -> str:
-    """Detecta el tipo de archivo usando magic y filetype"""
-    mime = magic.Magic(mime=True)
-    mime_type = mime.from_file(file_path)
-    
+    """
+    Detecta el tipo MIME de un archivo usando filetype
+    """
     kind = filetype.guess(file_path)
-    extension = os.path.splitext(file_path)[1].lower()
     
-    logger.info(f"Detectado: MIME={mime_type}, Extension={extension}")
+    if kind is None:
+        # Si filetype no detecta el tipo, usar la extensión
+        import mimetypes
+        mime, _ = mimetypes.guess_type(file_path)
+        return mime or 'application/octet-stream'
     
-    return mime_type
+    return kind.mime
 
 # Procesadores específicos por tipo de documento
 def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
