@@ -1,14 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing import List
 
 from database.db import get_db
-from models import Agent, AgentKnowledge, User
-from schemas import AgentResponse, AgentCreate
+from models import Agent, Knowledge, AgentKnowledgeItem, User, KnowledgeBase
+from schemas import AgentResponse, AgentCreate, AgentUpdate
 from dependencies.auth import get_current_user
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+# Quitar el prefix "/agents" redundante
+router = APIRouter()
+
+# Modificar el schema para soportar múltiples knowledge IDs
+class AgentUpdate(AgentCreate):
+    knowledge_ids: List[int] = []  # Lista de IDs de documentos de conocimiento
 
 @router.post("/{agent_id}/knowledge/{knowledge_id}")
 async def link_knowledge_to_agent(
@@ -148,40 +153,194 @@ async def get_my_agents(
     
     return agents
 
+# Modificar el endpoint de creación
 @router.post("/me", response_model=AgentResponse)
 async def create_my_agent(
     agent: AgentCreate,
+    knowledge_ids: List[int] = Body(default=[]),  # Lista separada para mantener compatibilidad
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Crea un nuevo agente para el usuario autenticado.
     """
-    # Verificar que el knowledge_id pertenezca al usuario o sea del sistema
-    knowledge_base = db.query(KnowledgeBase).filter(
-        KnowledgeBase.id == agent.knowledge_id,
-        (KnowledgeBase.user_id == current_user.id) | (KnowledgeBase.is_system_base == True)
-    ).first()
-    
-    if not knowledge_base:
-        raise HTTPException(
-            status_code=404,
-            detail="Base de conocimiento no encontrada o no tienes acceso"
-        )
-    
+    # Crear el agente sin knowledge_id
     new_agent = Agent(
         user_id=current_user.id,
         name=agent.name,
         description=agent.description,
         is_private=agent.is_private,
-        is_system_agent=False,  # Un usuario no puede crear agentes del sistema
+        is_system_agent=False,
         api_path=agent.api_url,
-        knowledge_id=agent.knowledge_id,
-        model="gpt-4o"  # Valor por defecto
+        model="gpt-4o"
     )
     
     db.add(new_agent)
+    db.flush()  # Para obtener el ID sin hacer commit
+    
+    # Añadir todos los knowledge_ids como relaciones
+    if knowledge_ids:
+        # Verificar que los IDs de conocimiento existan y pertenezcan al usuario
+        for kid in knowledge_ids:
+            k = db.query(Knowledge).filter(
+                Knowledge.id == kid,
+                Knowledge.user_id == current_user.id
+            ).first()
+            
+            if not k:
+                continue  # Ignorar IDs inválidos
+                
+            # Crear relación entre agente y documento
+            agent_knowledge = AgentKnowledgeItem(
+                agent_id=new_agent.id,
+                knowledge_id=kid
+            )
+            db.add(agent_knowledge)
+    
     db.commit()
     db.refresh(new_agent)
     
     return new_agent
+
+# Modificar el endpoint de actualización
+@router.put("/{agent_id}", response_model=AgentResponse)
+async def update_agent(
+    agent_id: int,
+    agent_update: AgentCreate,
+    knowledge_ids: List[int] = Body(default=[]),  # Lista separada para mantener compatibilidad
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Actualiza un agente existente.
+    El usuario debe ser propietario del agente.
+    """
+    print(f"Actualizando agente ID: {agent_id}, knowledge_ids: {knowledge_ids}")
+    
+    # Verificar que el agente existe y pertenece al usuario
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id,
+        Agent.user_id == current_user.id,
+        Agent.is_system_agent == False
+    ).first()
+    
+    if not agent:
+        agent_exists = db.query(Agent).filter(Agent.id == agent_id).first()
+        if not agent_exists:
+            raise HTTPException(status_code=404, detail=f"Agente ID {agent_id} no encontrado")
+        else:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"No tienes permisos para editar el agente ID {agent_id}"
+            )
+    
+    # Actualizar campos básicos del agente
+    agent.name = agent_update.name
+    agent.description = agent_update.description
+    agent.is_private = agent_update.is_private
+    
+    # Eliminar relaciones existentes con documentos
+    db.query(AgentKnowledgeItem).filter(
+        AgentKnowledgeItem.agent_id == agent_id
+    ).delete()
+    
+    # Añadir nuevas relaciones con documentos
+    if knowledge_ids:
+        for kid in knowledge_ids:
+            # Verificar que el documento existe y pertenece al usuario
+            k = db.query(Knowledge).filter(
+                Knowledge.id == kid,
+                Knowledge.user_id == current_user.id
+            ).first()
+            
+            if not k:
+                continue  # Ignorar IDs inválidos
+                
+            # Crear relación entre agente y documento
+            agent_knowledge = AgentKnowledgeItem(
+                agent_id=agent_id,
+                knowledge_id=kid
+            )
+            db.add(agent_knowledge)
+    
+    db.commit()
+    db.refresh(agent)
+    
+    return agent
+
+# Añadir endpoint para obtener los documentos de conocimiento asociados a un agente
+@router.get("/{agent_id}/knowledge", response_model=List[dict])
+async def get_agent_knowledge(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Obtiene todos los documentos de conocimiento asociados a un agente."""
+    print(f"Obteniendo knowledge para agente {agent_id}")
+    
+    # Verificar que el agente existe y pertenece al usuario o es del sistema
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id,
+        ((Agent.user_id == current_user.id) | (Agent.is_system_agent == True))
+    ).first()
+    
+    if not agent:
+        raise HTTPException(
+            status_code=404,
+            detail="Agente no encontrado o sin acceso"
+        )
+    
+    # Obtener documentos asociados
+    knowledge_items = db.query(Knowledge).join(
+        AgentKnowledgeItem,
+        Knowledge.id == AgentKnowledgeItem.knowledge_id
+    ).filter(
+        AgentKnowledgeItem.agent_id == agent_id
+    ).all()
+    
+    print(f"Knowledge items encontrados: {len(knowledge_items)}")
+    
+    # Devolver solo los campos necesarios
+    result = []
+    for item in knowledge_items:
+        item_dict = {
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,  # Ahora incluimos la descripción
+            "content_hash": item.content_hash,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
+            "user_id": item.user_id
+        }
+        result.append(item_dict)
+    
+    return result
+
+@router.delete("/{agent_id}", status_code=204)
+async def delete_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Elimina un agente.
+    El usuario debe ser propietario del agente.
+    """
+    # Buscar el agente y verificar pertenencia
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id,
+        Agent.user_id == current_user.id,
+        Agent.is_system_agent == False  # No permitir eliminar agentes del sistema
+    ).first()
+    
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail="Agente no encontrado o no tienes permisos para eliminarlo"
+        )
+    
+    # Eliminar el agente
+    db.delete(agent)
+    db.commit()
+    
+    return None

@@ -7,6 +7,7 @@ import uuid
 import hashlib
 from datetime import datetime
 from pydantic import BaseModel
+from loguru import logger
 
 # Importaciones internas
 from dependencies.auth import get_current_user
@@ -31,6 +32,15 @@ class ProcessingStatus(BaseModel):
     status: str
     progress: float
     message: Optional[str] = None
+    completed_at: Optional[datetime] = None
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    progress: float
+    message: Optional[str] = None
+    filename: Optional[str] = None
+    created_at: datetime
     completed_at: Optional[datetime] = None
 
 # Define additional models
@@ -100,7 +110,7 @@ async def get_user_knowledge_items(
     # Incluir conocimientos del sistema si se solicita
     if include_system:
         system_user = db.query(User).filter(User.is_system_user == True).first()
-        if system_user:
+        if (system_user):
             query = query.union_all(
                 db.query(Knowledge).filter(Knowledge.user_id == system_user.id)
             )
@@ -116,40 +126,55 @@ async def add_my_knowledge_item(
     current_user: User = Depends(get_current_user)
 ):
     """Añade conocimiento al usuario autenticado"""
-    # Generar content_hash automáticamente a partir del contenido
-    content_hash = hashlib.md5(knowledge_item.content.encode('utf-8')).hexdigest()
-    
-    # Verificar si ya existe un conocimiento con el mismo hash
-    existing_by_hash = db.query(Knowledge).filter(
-        Knowledge.user_id == current_user.id,
-        Knowledge.content_hash == content_hash
-    ).first()
-    
-    if existing_by_hash:
-        raise HTTPException(
-            status_code=409,
-            detail="Ya existe un conocimiento con este mismo contenido"
-        )
+    # Verificar si existe la base de conocimiento si se proporciona
+    if base_id is not None:
+        kb = db.query(KnowledgeBase).filter(
+            KnowledgeBase.id == base_id,
+            ((KnowledgeBase.user_id == current_user.id) | (KnowledgeBase.is_system_base == True))
+        ).first()
+        
+        if not kb:
+            raise HTTPException(
+                status_code=404,
+                detail="Base de conocimiento no encontrada o no tienes acceso"
+            )
     
     # Verificar si ya existe un conocimiento con el mismo nombre
-    existing_by_name = db.query(Knowledge).filter(
+    existing = db.query(Knowledge).filter(
         Knowledge.user_id == current_user.id,
         Knowledge.name == knowledge_item.name
     ).first()
     
-    if existing_by_name:
+    if existing:
         raise HTTPException(
             status_code=409,
             detail="Ya existe un conocimiento con este nombre"
         )
     
-    # Crear el nuevo item de conocimiento
+    # Calcular hash del contenido o generar uno único si no hay contenido
+    content_hash = None
+    if knowledge_item.content:
+        content_hash = hashlib.md5(knowledge_item.content.encode('utf-8')).hexdigest()
+    else:
+        # Generar hash único basado en nombre y timestamp
+        import time
+        content_hash = hashlib.md5(f"{current_user.id}_{knowledge_item.name}_{time.time()}".encode('utf-8')).hexdigest()
+    
+    # Crear nueva estructura vector_ids con el contenido
+    vector_ids = {}
+    if knowledge_item.content:
+        vector_ids["content"] = knowledge_item.content
+    
+    if knowledge_item.description:
+        vector_ids["description"] = knowledge_item.description
+    
     new_knowledge = Knowledge(
         user_id=current_user.id,
         name=knowledge_item.name,
+        description=knowledge_item.description,
+        content_hash=content_hash,
         base_id=base_id,
-        content_hash=content_hash,  # Asignar el hash generado
-        vector_ids={"content": knowledge_item.content}  # Almacenar el contenido
+        vector_ids=vector_ids
     )
     
     db.add(new_knowledge)
@@ -261,11 +286,27 @@ async def update_knowledge_item(
     
     # Actualizar los campos
     knowledge.name = knowledge_update.name
-    if knowledge_update.vector_ids is not None:
-        knowledge.vector_ids = knowledge_update.vector_ids
-        # Actualizar el hash de contenido
-        content_string = str(knowledge_update.vector_ids or {})
-        knowledge.content_hash = hashlib.md5(content_string.encode()).hexdigest()
+    knowledge.description = knowledge_update.description
+    
+    # Si se proporciona contenido nuevo, actualizar el hash y los vector_ids
+    if knowledge_update.content:
+        # Calcular nuevo hash
+        content_hash = hashlib.md5(knowledge_update.content.encode('utf-8')).hexdigest()
+        knowledge.content_hash = content_hash
+        
+        # Inicializar o actualizar vector_ids
+        if not knowledge.vector_ids:
+            knowledge.vector_ids = {}
+        
+        knowledge.vector_ids["content"] = knowledge_update.content
+        
+        # Si hay descripción, también la incluimos
+        if knowledge_update.description:
+            knowledge.vector_ids["description"] = knowledge_update.description
+    else:
+        # Solo actualizar la descripción en vector_ids si existe y se proporciona nueva
+        if knowledge.vector_ids and knowledge_update.description:
+            knowledge.vector_ids["description"] = knowledge_update.description
     
     db.commit()
     db.refresh(knowledge)
@@ -567,31 +608,19 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Upload knowledge files (PDF, Excel, JSON, TXT) for processing and indexing
-    """
-    # Validate file type
-    allowed_types = ["application/pdf", "application/json", "text/plain", 
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "application/vnd.ms-excel"]
-    
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, 
-                           detail="File type not supported. Please upload PDF, Excel, JSON, or TXT files.")
-    
-    # Generate job ID for tracking
+    """Sube un archivo para ser procesado e indexado"""
     job_id = str(uuid.uuid4())
     
-    # Save file temporarily
-    temp_dir = "temp_files"
-    os.makedirs(temp_dir, exist_ok=True)
-    file_path = f"{temp_dir}/{job_id}_{file.filename}"
+    # Crear directorio temporal si no existe
+    os.makedirs("./temp", exist_ok=True)
     
+    # Guardar archivo en directorio temporal
+    file_path = f"./temp/{file.filename}"
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
     
-    # Queue background processing task
+    # Programar tarea en segundo plano
     background_tasks.add_task(
         process_and_store_file,
         file_path=file_path,
@@ -601,11 +630,11 @@ async def upload_file(
         job_id=job_id
     )
     
-    # Create initial status in Redis
+    # Crear estado inicial en Redis
     update_processing_status(job_id, {
         "status": "processing",
         "progress": 0.0,
-        "message": "File received, starting processing",
+        "message": "Archivo recibido, comenzando procesamiento",
         "filename": file.filename,
         "user_id": current_user.id
     })
@@ -639,6 +668,37 @@ async def check_processing_status(
         status=status.get("status", "unknown"),
         progress=status.get("progress", 0.0),
         message=status.get("message"),
+        completed_at=status.get("completed_at")
+    )
+
+@router.get("/job/{job_id}/status", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Obtiene el estado actual de un trabajo de procesamiento"""
+    status = get_processing_status(job_id)
+    
+    if not status:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Trabajo con ID {job_id} no encontrado"
+        )
+    
+    # Verificar que el trabajo pertenece al usuario actual
+    if str(status.get("user_id")) != str(current_user.id) and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para ver este trabajo"
+        )
+    
+    return JobStatusResponse(
+        job_id=job_id,
+        status=status.get("status", "unknown"),
+        progress=status.get("progress", 0.0),
+        message=status.get("message", ""),
+        filename=status.get("filename", ""),
+        created_at=status.get("created_at", datetime.now()),
         completed_at=status.get("completed_at")
     )
 
@@ -685,53 +745,62 @@ async def search_knowledge(
 # Helper function for file processing
 async def process_and_store_file(file_path: str, file_name: str, content_type: str, user_id: str, job_id: str):
     try:
-        # Update progress
+        # Actualizar progreso
         update_processing_status(job_id, {
             "status": "processing",
             "progress": 0.2,
-            "message": "Processing file content"
+            "message": "Procesando contenido del archivo"
         })
         
-        # Process the file using ROPE
+        # Procesar el archivo usando ROPE
         chunks = process_file_with_rope(file_path, content_type)
         
         update_processing_status(job_id, {
             "status": "processing",
             "progress": 0.5,
-            "message": "Optimizing vectors"
+            "message": "Optimizando vectores"
         })
         
-        # Optimize vectors for storage
+        # Optimizar vectores para almacenamiento
         vectors = optimize_vectors(chunks)
         
         update_processing_status(job_id, {
             "status": "processing",
             "progress": 0.8,
-            "message": "Storing in vector database"
+            "message": "Almacenando en base de datos vectorial"
         })
         
-        # Store in Weaviate
-        store_vectors_in_weaviate(vectors, user_id=user_id, filename=file_name, content_type=content_type)
+        # Almacenar en Weaviate
+        store_vectors_in_weaviate(vectors, {
+            "user_id": user_id,
+            "filename": file_name,
+            "job_id": job_id,
+            "content_type": content_type,
+            "processed_at": datetime.now().isoformat()
+        })
         
-        # Cleanup temp file
-        os.unlink(file_path)
-        
+        # Actualizar status como completado
         update_processing_status(job_id, {
             "status": "completed",
             "progress": 1.0,
-            "message": "Processing complete",
+            "message": "Procesamiento completado con éxito",
             "completed_at": datetime.now().isoformat()
         })
         
     except Exception as e:
+        # Log y actualizar estado en caso de error
+        logger.error(f"Error processing file {file_name}: {str(e)}")
         update_processing_status(job_id, {
             "status": "failed",
-            "progress": 0,
-            "message": f"Error: {str(e)}"
+            "message": f"Error en procesamiento: {str(e)}"
         })
-        # Handle cleanup
-        if os.path.exists(file_path):
-            os.unlink(file_path)
+        
+    finally:
+        # Eliminar archivo temporal
+        try:
+            os.remove(file_path)
+        except:
+            pass
 
 @router.get("/debug-model", response_model=dict)
 async def debug_knowledge_model():

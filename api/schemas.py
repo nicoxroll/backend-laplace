@@ -44,17 +44,20 @@ class UserProfileResponse(BaseModel):
 class AgentBase(BaseModel):
     name: str
     is_private: bool = True
-    is_system_agent: bool = False  # Añadir campo
+    is_system_agent: bool = False
     description: Optional[str] = None
     api_url: Optional[str] = None
+    knowledge_ids: Optional[List[int]] = None  # Optional list of knowledge IDs
 
 class AgentCreate(AgentBase):
-    knowledge_id: int
+    pass  # Ahora hereda knowledge_ids de AgentBase
+
+class AgentUpdate(AgentBase):
+    pass  # También hereda knowledge_ids
 
 class AgentResponse(AgentBase):
     id: int
     user_id: int
-    knowledge_id: int
     created_at: datetime
 
     model_config = {

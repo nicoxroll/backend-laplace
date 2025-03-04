@@ -42,12 +42,11 @@ class KnowledgeBase(BaseModel):
     name = Column(String(100), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     is_system_base = Column(Boolean, default=False)
+    description = Column(Text, nullable=True)
+    vector_config = Column(JSON, nullable=True)
     
-    # Relación existente
+    # Mantener solo la relación con knowledge_items
     knowledge_items = relationship("Knowledge", back_populates="base")
-    
-    # Agregar esta relación que falta
-    agents = relationship("Agent", back_populates="knowledge_base")
     
     user = relationship("User", back_populates="knowledge_bases")
     
@@ -59,30 +58,33 @@ class Agent(BaseModel):
     __tablename__ = "agents"
     
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    knowledge_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    description = Column(Text)
-    api_path = Column(String(255))
-    model = Column(String(50), default="gpt-4o")
     is_private = Column(Boolean, default=True)
     is_system_agent = Column(Boolean, default=False)
-
+    description = Column(Text, nullable=True)
+    api_path = Column(String(255), nullable=True)
+    model = Column(String(50), default="gpt-4o")
+    
+    # Relaciones existentes
+    knowledge_items = relationship("AgentKnowledgeItem", back_populates="agent", cascade="all, delete-orphan")
     user = relationship("User", back_populates="agents")
-    knowledge_base = relationship("KnowledgeBase", back_populates="agents")
-    chats = relationship("Chat", back_populates="agent", cascade="all, delete-orphan")
+    
+    # Añadir esta relación para corregir el error
+    chats = relationship("Chat", back_populates="agent")
 
 class Knowledge(BaseModel):
     __tablename__ = "knowledge"
     
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)  # Añadir esta línea
     base_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=True)
     content_hash = Column(String(64), nullable=False)
     vector_ids = Column(JSON, nullable=True)
     
-    # Esta relación ya estaba correcta
     user = relationship("User", back_populates="knowledge_items")
     base = relationship("KnowledgeBase", back_populates="knowledge_items")
+    agent_links = relationship("AgentKnowledgeItem", back_populates="knowledge", cascade="all, delete-orphan")
     
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='uq_user_knowledge_name'),
@@ -95,6 +97,15 @@ class AgentKnowledge(Base, TimestampMixin):
     agent_id = Column(Integer, ForeignKey("agents.id"), primary_key=True)
     knowledge_id = Column(Integer, ForeignKey("knowledge.id"), primary_key=True)
     access_level = Column(String(20), default="read")
+
+class AgentKnowledgeItem(Base, TimestampMixin):
+    __tablename__ = "agent_knowledge_items"
+    
+    agent_id = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
+    knowledge_id = Column(Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), primary_key=True)
+    
+    agent = relationship("Agent", back_populates="knowledge_items")
+    knowledge = relationship("Knowledge", back_populates="agent_links")
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
