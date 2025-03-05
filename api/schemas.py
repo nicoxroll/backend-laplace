@@ -48,6 +48,7 @@ class AgentBase(BaseModel):
     description: Optional[str] = None
     api_path: Optional[str] = None
     knowledge_ids: Optional[List[int]] = None  # Optional list of knowledge IDs
+
 class AgentCreate(AgentBase):
     pass  # Ahora hereda knowledge_ids de AgentBase
 
@@ -105,27 +106,8 @@ class KnowledgeResponse(Knowledge):
     id: int
     user_id: int
     created_at: datetime
-    associated_agents: Optional[List[str]] = None  # Añadir este campo
+    associated_agents: Optional[List[str]] = None  # Lista de agentes asociados
     
-    model_config = {
-        "from_attributes": True
-    }
-
-# Repository schemas
-class RepositoryBase(BaseModel):
-    repo_url: str
-    platform: str
-    name: Optional[str] = None
-
-class RepositoryCreate(RepositoryBase):
-    pass
-
-class RepositoryResponse(RepositoryBase):
-    id: int
-    user_id: int
-    last_indexed: Optional[datetime] = None
-    created_at: datetime
-
     model_config = {
         "from_attributes": True
     }
