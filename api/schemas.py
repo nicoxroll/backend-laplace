@@ -76,8 +76,15 @@ class KnowledgeBase(BaseModel):
     is_system_base: bool = False
     vector_config: Optional[Dict[str, Any]] = None
 
-class KnowledgeCreate(KnowledgeBase):
-    pass
+class KnowledgeCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    content: str  # Campo obligatorio para generar el hash
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_type: Optional[str] = None
+    job_id: Optional[str] = None
+    weaviate_id: Optional[str] = None
 
 class KnowledgeBaseResponse(KnowledgeBase):
     id: int
@@ -96,11 +103,6 @@ class Knowledge(BaseModel):
     vector: Optional[List[float]] = None
     vector_config: Optional[Dict[str, Any]] = None
     vector_ids: Optional[Union[str, Dict[str, str]]] = None
-
-class KnowledgeCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    content: str  # Campo obligatorio para generar el hash
 
 class KnowledgeResponse(Knowledge):
     id: int

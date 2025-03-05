@@ -1,0 +1,7 @@
+{
+  "text_chunks": ["weaviate-id-1", "weaviate-id-2"],
+  "file": {
+    "id": "weaviate-file-id",
+    "job_id": "processing-job-id"
+  }
+}

@@ -157,69 +157,63 @@ async def get_user_knowledge(
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @router.post("/items", response_model=KnowledgeResponse)
-async def add_my_knowledge_item(
-    knowledge_item: KnowledgeCreate,
-    base_id: Optional[int] = Query(None, description="ID de la base de conocimiento"),
+def create_knowledge_item(
+    knowledge_data: KnowledgeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """Añade conocimiento al usuario autenticado"""
-    # Verificar si existe la base de conocimiento si se proporciona
-    if base_id is not None:
-        kb = db.query(KnowledgeBase).filter(
-            KnowledgeBase.id == base_id,
-            ((KnowledgeBase.user_id == current_user.id) | (KnowledgeBase.is_system_base == True))
+    try:
+        # Crear estructura vector_ids
+        vector_ids = {}
+        
+        # Garantizar que content tenga un valor
+        content = knowledge_data.content or "Sin contenido"
+        
+        # Almacenar el contenido en vector_ids
+        vector_ids["content"] = content
+        
+        # Si hay un archivo, guardar su información
+        if knowledge_data.file_name:
+            vector_ids["file"] = {
+                "job_id": knowledge_data.job_id,
+                "file_name": knowledge_data.file_name,
+                "file_size": knowledge_data.file_size,
+                "file_type": knowledge_data.file_type,
+            }
+        
+        # Calcular hash del contenido
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+        
+        # Crear el item de conocimiento
+        db_knowledge = Knowledge(
+            name=knowledge_data.name,
+            description=knowledge_data.description or "",
+            user_id=current_user.id,
+            content_hash=content_hash,
+            file_name=knowledge_data.file_name,
+            file_size=knowledge_data.file_size,
+            file_type=knowledge_data.file_type,
+            job_id=knowledge_data.job_id,
+            vector_ids=vector_ids
+        )
+        
+        # Verificar nombre único
+        existing = db.query(Knowledge).filter(
+            Knowledge.user_id == current_user.id,
+            Knowledge.name == knowledge_data.name
         ).first()
         
-        if not kb:
-            raise HTTPException(
-                status_code=404,
-                detail="Base de conocimiento no encontrada o no tienes acceso"
-            )
-    
-    # Verificar si ya existe un conocimiento con el mismo nombre
-    existing = db.query(Knowledge).filter(
-        Knowledge.user_id == current_user.id,
-        Knowledge.name == knowledge_item.name
-    ).first()
-    
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Ya existe un conocimiento con este nombre"
-        )
-    
-    # Calcular hash del contenido o generar uno único si no hay contenido
-    content_hash = None
-    if knowledge_item.content:
-        content_hash = hashlib.md5(knowledge_item.content.encode('utf-8')).hexdigest()
-    else:
-        # Generar hash único basado en nombre y timestamp
-        import time
-        content_hash = hashlib.md5(f"{current_user.id}_{knowledge_item.name}_{time.time()}".encode('utf-8')).hexdigest()
-    
-    # Crear nueva estructura vector_ids con el contenido
-    vector_ids = {}
-    if knowledge_item.content:
-        vector_ids["content"] = knowledge_item.content
-    
-    if knowledge_item.description:
-        vector_ids["description"] = knowledge_item.description
-    
-    new_knowledge = Knowledge(
-        user_id=current_user.id,
-        name=knowledge_item.name,
-        description=knowledge_item.description,
-        content_hash=content_hash,
-        base_id=base_id,
-        vector_ids=vector_ids
-    )
-    
-    db.add(new_knowledge)
-    db.commit()
-    db.refresh(new_knowledge)
-    
-    return new_knowledge
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Ya existe un conocimiento con el nombre '{knowledge_data.name}'")
+        
+        db.add(db_knowledge)
+        db.commit()
+        db.refresh(db_knowledge)
+        
+        return db_knowledge
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @router.post("/items/user/{user_id}", response_model=KnowledgeResponse)
 async def add_knowledge_to_user(
@@ -1003,4 +997,186 @@ async def get_weaviate_contents(
             "error": str(e),
             "status": "error"
         }
+
+# Añadir este nuevo endpoint para manejar repositorios
+import json
+
+@router.post("/repository", response_model=FileUploadResponse)
+async def process_repository(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    repository_name: str = Form(...),
+    is_repository: bool = Form(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Procesa datos de repositorio como JSON"""
+    # Validación básica
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No se recibió ningún archivo")
+    
+    # Crear identificador único
+    job_id = str(uuid.uuid4())
+    file_manager = TempFileManager()
+    
+    try:
+        # Crear archivo temporal
+        temp_file_path = file_manager.create_temp_file(prefix=f"repo_{job_id}_", suffix=".json")
+        
+        # Guardar contenido
+        file_size = 0
+        async with aiofiles.open(temp_file_path, 'wb') as f:
+            while chunk := await file.read(8192):  # 8kb chunks
+                await f.write(chunk)
+                file_size += len(chunk)
+        
+        # Configurar estado inicial
+        metadata = {
+            "user_id": current_user.id,
+            "repository_name": repository_name,
+            "is_repository": True,
+            "filename": file.filename,
+            "file_size": file_size,
+            "content_type": "application/json",
+            "temp_file_path": temp_file_path,
+            "file_manager": file_manager
+        }
+        
+        update_processing_status(job_id, {
+            "status": "received",
+            "progress": 0.0,
+            "message": f"Repositorio {repository_name} recibido, iniciando procesamiento",
+            "repository_name": repository_name,
+            "user_id": current_user.id,
+            "created_at": datetime.now().isoformat()
+        })
+        
+        # Iniciar procesamiento en segundo plano
+        background_tasks.add_task(
+            process_repository_background,
+            temp_file_path,
+            metadata,
+            job_id
+        )
+        
+        return FileUploadResponse(
+            job_id=job_id,
+            filename=file.filename,
+            repository_name=repository_name,
+            status="processing",
+            message="Procesamiento iniciado",
+            created_at=datetime.now()
+        )
+        
+    except Exception as e:
+        # Limpiar recursos en caso de error
+        file_manager.cleanup()
+        
+        logger.error(f"Error procesando repositorio: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al procesar el repositorio: {str(e)}"
+        )
+
+async def process_repository_background(file_path: str, metadata: dict, job_id: str):
+    """Procesa un repositorio en segundo plano"""
+    file_manager = metadata.get("file_manager")
+    
+    try:
+        update_processing_status(job_id, {
+            "status": "processing",
+            "progress": 0.2,
+            "message": "Procesando datos del repositorio"
+        })
+        
+        # Leer contenido del archivo JSON
+        async with aiofiles.open(file_path, 'r') as f:
+            content = await f.read()
+            repo_data = json.loads(content)
+        
+        # Subir a Weaviate
+        update_processing_status(job_id, {
+            "status": "processing",
+            "progress": 0.4,
+            "message": "Almacenando en base vectorial"
+        })
+        
+        weaviate_id = await upload_repository_to_weaviate(
+            file_path, 
+            metadata["repository_name"], 
+            metadata["user_id"], 
+            job_id,
+            repo_data
+        )
+        
+        # Guardar en base de datos SQL
+        db = SessionLocal()
+        try:
+            # Crear entrada en knowledge
+            knowledge = Knowledge(
+                name=metadata["repository_name"],
+                description=f"Repositorio: {metadata['repository_name']}",
+                user_id=metadata["user_id"],
+                job_id=job_id,
+                file_name=metadata["filename"],
+                file_size=metadata["file_size"],
+                file_type="repository/json",
+                weaviate_id=weaviate_id
+            )
+            
+            db.add(knowledge)
+            db.commit()
+            
+            update_processing_status(job_id, {
+                "status": "completed",
+                "progress": 1.0,
+                "message": "Repositorio procesado correctamente",
+                "knowledge_id": knowledge.id
+            })
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error procesando repositorio {job_id}: {str(e)}")
+        update_processing_status(job_id, {
+            "status": "failed",
+            "message": f"Error: {str(e)}"
+        })
+    finally:
+        # Limpiar recursos temporales
+        if file_manager:
+            file_manager.cleanup()
+
+async def upload_repository_to_weaviate(file_path: str, repo_name: str, user_id: str, job_id: str, repo_data: dict):
+    """Sube datos del repositorio a Weaviate"""
+    try:
+        # Obtener cliente Weaviate
+        client = get_weaviate_client()
+        
+        # Leer contenido del archivo
+        with open(file_path, "rb") as file:
+            file_content = file.read()
+        
+        # Preparar objeto para Weaviate
+        repository_object = {
+            "repository_name": repo_name,
+            "content_type": "application/json",
+            "repository_data": repo_data,
+            "user_id": user_id,
+            "job_id": job_id
+        }
+        
+        # Crear objeto en la clase Repository
+        weaviate_id = client.data_object.create(
+            data_object=repository_object,
+            class_name="Repository",
+            uuid=job_id
+        )
+        
+        logger.info(f"Repositorio subido a Weaviate con ID: {weaviate_id}")
+        return weaviate_id
+    except Exception as e:
+        logger.error(f"Error al subir repositorio a Weaviate: {str(e)}")
+        raise
 
