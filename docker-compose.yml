@@ -57,19 +57,15 @@ services:
     build: ./bert-service
     ports:
       - "5000:5000"
-    volumes:
-      - ./bert-service:/app
-    environment:
-      - MODEL_PATH=/app/models
     networks:
       - laplace-network
-    restart: on-failure
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5000/health || exit 1" ]
-      interval: 30s
-      timeout: 10s
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/health" ]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 30s
+    restart: on-failure
 
   db:
     image: postgres:13
@@ -137,6 +133,8 @@ services:
       DEFAULT_VECTORIZER_MODULE: "text2vec-transformers"
       ENABLE_MODULES: "text2vec-transformers"
       TRANSFORMERS_INFERENCE_API: "http://bert-service:5000"
+      CLUSTER_HOSTNAME: "node1"
+      LOG_LEVEL: "debug" # Para ver más detalles en los logs
     volumes:
       - weaviate_data:/var/lib/weaviate
     networks:
@@ -147,10 +145,10 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    restart: unless-stopped
+    restart: on-failure
     depends_on:
       bert-service:
-        condition: service_started
+        condition: service_healthy
 
 networks:
   laplace-network:

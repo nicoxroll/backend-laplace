@@ -12,7 +12,7 @@ CREATE TABLE agents (
   name VARCHAR NOT NULL,
   is_private BOOLEAN DEFAULT TRUE,
   description TEXT,
-  api_url VARCHAR,
+  api_path VARCHAR,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (user_id, id)

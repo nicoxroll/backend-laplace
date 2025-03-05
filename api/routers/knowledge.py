@@ -105,33 +105,56 @@ async def get_all_knowledge(
     knowledge_items = query.offset(offset).limit(limit).all()
     return knowledge_items
 
-@router.get("/items/user/{user_id}", response_model=List[KnowledgeResponse])
-async def get_user_knowledge_items(
-    user_id: int,
-    include_system: bool = Query(True),
+@router.get("/items/user/{user_id}")
+async def get_user_knowledge(
+    user_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Obtiene todos los conocimientos de un usuario específico.
-    """
-    # Verificar permisos
-    if current_user.id != user_id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="No tienes permiso")
-    
-    # Consultar conocimientos
-    query = db.query(Knowledge).filter(Knowledge.user_id == user_id)
-    
-    # Incluir conocimientos del sistema si se solicita
-    if include_system:
-        system_user = db.query(User).filter(User.is_system_user == True).first()
-        if (system_user):
-            query = query.union_all(
-                db.query(Knowledge).filter(Knowledge.user_id == system_user.id)
-            )
-    
-    knowledge_items = query.all()
-    return knowledge_items
+    try:
+        # Verificar permisos
+        if str(current_user.id) != user_id and not current_user.is_superuser:
+            raise HTTPException(status_code=403, detail="No autorizado para acceder a estos datos")
+            
+        # Consultar items de conocimiento
+        knowledge_items = db.query(Knowledge).filter(Knowledge.user_id == user_id).all()
+        
+        # Convertir a formato de respuesta
+        results = []
+        for item in knowledge_items:
+            # Consultar agentes asociados a este conocimiento directamente
+            agents = db.query(Agent).join(
+                AgentKnowledgeItem,
+                Agent.id == AgentKnowledgeItem.agent_id
+            ).filter(
+                AgentKnowledgeItem.knowledge_id == item.id
+            ).all()
+            
+            # Extraer nombres de agentes
+            agent_names = [agent.name for agent in agents]
+            
+            # Extraer content del vector_ids si existe
+            content = ""
+            if item.vector_ids and isinstance(item.vector_ids, dict) and "content" in item.vector_ids:
+                content = item.vector_ids["content"]
+            
+            # Crear objeto de respuesta con todos los campos
+            result_item = {
+                "id": str(item.id),
+                "name": item.name,
+                "description": item.description if hasattr(item, "description") else "",
+                "content": content,
+                "created_at": item.created_at.isoformat() if item.created_at else "",
+                "updated_at": item.updated_at.isoformat() if item.updated_at else "",
+                "user_id": str(item.user_id),
+                "associated_agents": agent_names  # Incluir directamente los nombres de agentes
+            }
+            results.append(result_item)
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error getting knowledge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @router.post("/items", response_model=KnowledgeResponse)
 async def add_my_knowledge_item(
@@ -951,4 +974,33 @@ async def debug_knowledge_model():
     model_info["model_name"] = Knowledge.__name__
     
     return model_info
+
+@router.get("/debug/weaviate-contents", response_model=dict)
+async def get_weaviate_contents(
+    limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(get_current_user)
+):
+    """Endpoint de depuración para ver qué hay almacenado en Weaviate"""
+    from db.weaviate_client import client, KNOWLEDGE_CLASS
+    
+    try:
+        # Primero, comprobar si el schema existe
+        schema = client.schema.get()
+        
+        # Intentar obtener datos
+        result = client.query.get(
+            KNOWLEDGE_CLASS,
+            ["content", "user_id", "filename", "content_type"]
+        ).with_limit(limit).do()
+        
+        return {
+            "schema": schema,
+            "data": result.get("data", {}).get("Get", {}).get(KNOWLEDGE_CLASS, []),
+            "status": "ok"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "error"
+        }
 

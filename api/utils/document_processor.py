@@ -375,18 +375,21 @@ async def process_document(file_path: str, metadata: Dict[str, Any], job_id: str
         raise e
 
 # Gestión de estados con Redis
+import os
 import redis
+from dotenv import load_dotenv
 
-# Conectar a Redis (con fallback a diccionario en memoria)
+# Cargar variables de entorno
+load_dotenv()
+
+# Usar la URL de Redis desde variables de entorno
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
 try:
-    redis_client = redis.Redis(
-        host=os.getenv("REDIS_HOST", "localhost"),
-        port=int(os.getenv("REDIS_PORT", "6379")),
-        db=int(os.getenv("REDIS_DB", "0")),
-        decode_responses=True
-    )
-    redis_client.ping()  # Prueba de conexión
-    logger.info("Conectado a Redis correctamente")
+    # Usar REDIS_URL en lugar de localhost:6379
+    redis_client = redis.from_url(REDIS_URL)
+    redis_client.ping()  # Verificar la conexión
+    logger.info(f"Conectado a Redis correctamente en {REDIS_URL}")
 except Exception as e:
     logger.warning(f"No se pudo conectar a Redis: {e}")
     # Fallback a diccionario en memoria

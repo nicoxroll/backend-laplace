@@ -12,7 +12,7 @@ Table agents {
   name varchar [not null]
   is_private boolean [default: true, note: 'True=solo dueño puede ver']
   description text
-  api_url varchar
+  api_path varchar
   created_at timestamp [default: `CURRENT_TIMESTAMP`]
   updated_at timestamp [default: `CURRENT_TIMESTAMP`]
   

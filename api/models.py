@@ -57,6 +57,7 @@ class KnowledgeBase(BaseModel):
 class Agent(BaseModel):
     __tablename__ = "agents"
     
+    id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
     is_private = Column(Boolean, default=True)
@@ -64,12 +65,11 @@ class Agent(BaseModel):
     description = Column(Text, nullable=True)
     api_path = Column(String(255), nullable=True)
     model = Column(String(50), default="gpt-4o")
+    #knowledge_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=True)  # Campo crucial
     
-    # Relaciones existentes
+    # Relaciones
     knowledge_items = relationship("AgentKnowledgeItem", back_populates="agent", cascade="all, delete-orphan")
     user = relationship("User", back_populates="agents")
-    
-    # Añadir esta relación para corregir el error
     chats = relationship("Chat", back_populates="agent")
 
 # Asegúrate que el modelo Knowledge tenga vector_ids

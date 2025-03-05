@@ -56,4 +56,5 @@ async def expand_query(query: dict):
 # Add a health endpoint
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    # Respuesta completa que Weaviate espera
+    return {"status": "ok"}  # Cambiar de "healthy" a "ok"

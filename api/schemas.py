@@ -46,9 +46,8 @@ class AgentBase(BaseModel):
     is_private: bool = True
     is_system_agent: bool = False
     description: Optional[str] = None
-    api_url: Optional[str] = None
+    api_path: Optional[str] = None
     knowledge_ids: Optional[List[int]] = None  # Optional list of knowledge IDs
-
 class AgentCreate(AgentBase):
     pass  # Ahora hereda knowledge_ids de AgentBase
 
@@ -59,7 +58,11 @@ class AgentResponse(AgentBase):
     id: int
     user_id: int
     created_at: datetime
-
+    updated_at: Optional[datetime] = None
+    knowledge_ids: Optional[List[int]] = []  # Asegurar que este campo esté presente
+    knowledge_base_name: Optional[str] = None  # Añadir este campo
+    associated_knowledge: Optional[List[str]] = []  # Añadir este campo
+    api_path: Optional[str] = None 
     model_config = {
         "from_attributes": True
     }
@@ -87,6 +90,10 @@ class KnowledgeBaseResponse(KnowledgeBase):
 
 class Knowledge(BaseModel):
     name: str
+    description: Optional[str] = None
+    content: Optional[str] = None
+    vector: Optional[List[float]] = None
+    vector_config: Optional[Dict[str, Any]] = None
     vector_ids: Optional[Union[str, Dict[str, str]]] = None
 
 class KnowledgeCreate(BaseModel):
@@ -98,6 +105,7 @@ class KnowledgeResponse(Knowledge):
     id: int
     user_id: int
     created_at: datetime
+    associated_agents: Optional[List[str]] = None  # Añadir este campo
     
     model_config = {
         "from_attributes": True

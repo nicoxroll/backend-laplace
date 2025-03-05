@@ -64,10 +64,59 @@ async def get_available_agents(
     - Agentes del sistema
     """
     agents = db.query(Agent).filter(
-        # El agente pertenece al usuario O es un agente del sistema
         ((Agent.user_id == current_user.id) | (Agent.is_system_agent == True))
     ).all()
-    return agents
+    
+    results = []
+    for agent in agents:
+        # Inicializar listas para IDs y nombres
+        knowledge_ids = []
+        knowledge_names = []
+        
+        # CASO 1: Para agentes que tienen knowledge_id directo (agentes del sistema)
+        if hasattr(agent, "knowledge_id") and agent.knowledge_id:
+            # Buscar en knowledge_bases (para agentes del sistema)
+            kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == agent.knowledge_id).first()
+            if kb:
+                knowledge_ids.append(kb.id)
+                knowledge_names.append(kb.name)
+                print(f"Agente {agent.name}: base de conocimiento directa: {kb.name}")
+        
+        # CASO 2: Para todos los agentes - conocimientos a través de agent_knowledge_items
+        knowledge_items = db.query(Knowledge).join(
+            AgentKnowledgeItem,
+            Knowledge.id == AgentKnowledgeItem.knowledge_id
+        ).filter(
+            AgentKnowledgeItem.agent_id == agent.id
+        ).all()
+        
+        # Añadir estos items a nuestra lista
+        for item in knowledge_items:
+            # Evitar duplicados
+            if item.id not in knowledge_ids:
+                knowledge_ids.append(item.id)
+                knowledge_names.append(item.name)
+                print(f"Agente {agent.name}: conocimiento asociado: {item.name}")
+        
+        # Construir el objeto de respuesta
+        agent_dict = {
+            "id": str(agent.id),
+            "name": agent.name,
+            "description": agent.description,
+            "is_private": agent.is_private,
+            "is_system_agent": agent.is_system_agent,
+            "api_path": agent.api_path,
+            "created_at": agent.created_at.isoformat() if agent.created_at else "",
+            "updated_at": agent.updated_at.isoformat() if agent.updated_at else "",
+            "user_id": str(agent.user_id),
+            "knowledge_ids": knowledge_ids,
+            "knowledge_base_name": ", ".join(knowledge_names) if knowledge_names else "Ninguno",
+            "associated_knowledge": knowledge_names
+        }
+        
+        results.append(agent_dict)
+    
+    return results
 
 @router.get("/system", response_model=List[AgentResponse])
 async def get_system_agents(db: Session = Depends(get_db)):
@@ -95,23 +144,62 @@ async def get_system_agent_by_slug(slug: str, db: Session = Depends(get_db)):
 
 @router.get("/user/{user_id}", response_model=List[AgentResponse])
 async def get_user_agents(
-    user_id: int, 
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Obtiene los agentes personalizados de un usuario.
-    """
-    # Verificar permisos (solo el mismo usuario o admin)
-    if current_user.id != user_id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="No tienes permiso para ver estos agentes")
+    # Verificar permisos
+    if str(current_user.id) != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="No autorizado para acceder a estos datos")
+        
+    agents = db.query(Agent).filter(Agent.user_id == user_id).all()
+    results = []
     
-    agents = db.query(Agent).filter(
-        Agent.user_id == user_id,
-        Agent.is_system_agent == False
-    ).all()
+    for agent in agents:
+        # Inicializar listas para IDs y nombres
+        knowledge_ids = []
+        knowledge_names = []
+        
+        # CASO 1: Agentes del sistema con knowledge_id directo
+        if agent.is_system_agent and hasattr(agent, "knowledge_id") and agent.knowledge_id:
+            knowledge = db.query(Knowledge).filter(Knowledge.id == agent.knowledge_id).first()
+            if knowledge:
+                knowledge_ids.append(knowledge.id)
+                knowledge_names.append(knowledge.name)
+        
+        # CASO 2: Todos los agentes - buscar en tabla de unión AgentKnowledgeItem
+        knowledge_items = db.query(Knowledge).join(
+            AgentKnowledgeItem,
+            Knowledge.id == AgentKnowledgeItem.knowledge_id
+        ).filter(
+            AgentKnowledgeItem.agent_id == agent.id
+        ).all()
+        
+        if knowledge_items:
+            for item in knowledge_items:
+                if item.id not in knowledge_ids:  # Evitar duplicados
+                    knowledge_ids.append(item.id)
+                    knowledge_names.append(item.name)
+        
+        # Construir respuesta con ambos tipos de asociaciones
+        agent_dict = {
+            "id": str(agent.id),
+            "name": agent.name,
+            "description": agent.description,
+            "is_private": agent.is_private,
+            "is_system_agent": agent.is_system_agent,
+            "api_path": agent.api_path,  # Cambiar api_url a api_path
+            "created_at": agent.created_at.isoformat() if agent.created_at else "",
+            "updated_at": agent.updated_at.isoformat() if agent.updated_at else "",
+            "user_id": str(agent.user_id),
+            "knowledge_ids": knowledge_ids,
+            "knowledge_base_name": ", ".join(knowledge_names) if knowledge_names else "Ninguno",
+            "associated_knowledge": knowledge_names  # Lista vacía si no hay conocimiento
+        }
+        
+        results.append(agent_dict)
     
-    return agents
+    return results
 
 @router.get("/all/{user_id}", response_model=List[AgentResponse])
 async def get_all_user_agents(
@@ -171,7 +259,7 @@ async def create_my_agent(
         description=agent.description,
         is_private=agent.is_private,
         is_system_agent=False,
-        api_path=agent.api_url,
+        api_path=agent.api_path,
         model="gpt-4o"
     )
     
@@ -238,6 +326,7 @@ async def update_agent(
     agent.name = agent_update.name
     agent.description = agent_update.description
     agent.is_private = agent_update.is_private
+    agent.api_path = agent_update.api_path
     
     # Eliminar relaciones existentes con documentos
     db.query(AgentKnowledgeItem).filter(
