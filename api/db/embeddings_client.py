@@ -9,8 +9,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Configure embedding service
-EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://localhost:8000/embeddings")
+# Configure embedding service - CORREGIDO para usar bert-service en la red Docker
+EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://bert-service:5000")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))  # Default to BERT dimension
 
 # Initialize model once at module level for efficiency
@@ -150,6 +150,7 @@ def generate_embeddings_remote(texts: List[str]) -> List[List[float]]:
             all_embeddings = []
             for i in range(0, len(texts), batch_size):
                 batch_texts = texts[i:i+batch_size]
+                logger.debug(f"Enviando lote {i//batch_size + 1} a API: {EMBEDDING_API_URL}")
                 response = requests.post(
                     EMBEDDING_API_URL,
                     json={"texts": batch_texts},
@@ -167,6 +168,7 @@ def generate_embeddings_remote(texts: List[str]) -> List[List[float]]:
             return all_embeddings
             
         # Make API request to embedding service
+        logger.debug(f"Enviando petición a API de embeddings: {EMBEDDING_API_URL}")
         response = requests.post(
             EMBEDDING_API_URL,
             json={"texts": texts},

@@ -438,3 +438,70 @@ def get_processing_status(job_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error obteniendo estado para job {job_id}: {e}")
         return None
+
+# Añadir función específica para procesar repositorios
+async def process_repository_json(file_path: str, job_id: str, user_id: str, metadata: dict):
+    """
+    Procesa un archivo JSON de repositorio y lo vectoriza para Weaviate
+    """
+    logger.info(f"Procesando repositorio desde JSON: {file_path}")
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            repo_data = json.load(f)
+        
+        # Extraer contenido del repositorio
+        vectors = []
+        
+        # Recorrer la estructura del repositorio
+        for file_item in repo_data.get('files', []):
+            file_path = file_item.get('path', '')
+            file_content = file_item.get('content', '')
+            file_extension = os.path.splitext(file_path)[1].lower()
+            
+            # Saltar archivos binarios o sin contenido
+            if not file_content or is_binary_content(file_extension):
+                continue
+                
+            # Chunking del contenido del archivo
+            chunks = create_chunks(file_content, 1000, 200)
+            
+            # Generar embeddings para los chunks
+            embeddings = await generate_embeddings(chunks)
+            
+            # Crear vectores para cada chunk
+            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                vectors.append({
+                    "content": chunk,
+                    "embedding": embedding,
+                    "metadata": {
+                        "file_path": file_path,
+                        "chunk_index": i
+                    },
+                    "batch_id": len(vectors)  # Índice único para cada vector
+                })
+        
+        # Metadatos para Weaviate
+        weaviate_metadata = {
+            "user_id": user_id,
+            "filename": metadata.get("filename", "repository.json"),
+            "job_id": job_id,
+            "content_type": "repository",
+            "processed_at": datetime.now().isoformat()
+        }
+        
+        # Almacenar vectores en Weaviate
+        vector_ids = store_vectors_in_weaviate(vectors, weaviate_metadata)
+        logger.info(f"Repositorio indexado exitosamente: {len(vector_ids)} chunks")
+        
+        return {
+            "status": "completed",
+            "vectors": len(vector_ids),
+            "vector_ids": vector_ids
+        }
+        
+    except Exception as e:
+        logger.error(f"Error procesando repositorio JSON: {str(e)}")
+        return {
+            "status": "failed",
+            "error": str(e)
+        }

@@ -61,73 +61,65 @@ except Exception as e:
 # Define class name for knowledge chunks
 KNOWLEDGE_CLASS = "KnowledgeChunk"
 
-# Initialize schema if not already created
+# Corregir error de indentación
+
 def init_schema():
-    if not client.schema.exists(KNOWLEDGE_CLASS):
-        class_obj = {
-            "class": KNOWLEDGE_CLASS,
-            "vectorizer": "none",  # We'll provide our own vectors
-            "vectorIndexConfig": {
-                "distance": "cosine",
-                "ef": 256,
-                "efConstruction": 512,
-                "maxConnections": 128,
-            },
-            "properties": [
-                {
-                    "name": "content",
-                    "dataType": ["text"],
-                    "description": "The textual content of the chunk",
-                    "indexSearchable": True,
-                    "tokenization": "word"
+    """Initialize schema if not already created"""
+    try:
+        # Intentar obtener el esquema con diferentes métodos según versión
+        try:
+            # Método para v3
+            schema = client.schema.get()
+        except (AttributeError, TypeError):
+            try:
+                # Método para v4
+                schema = client.get_schema()
+            except (AttributeError, TypeError):
+                try:
+                    # Método para otras versiones
+                    schema = client.schema().get()
+                except Exception as e:
+                    logger.error(f"Error accessing schema: {e}")
+                    raise RuntimeError(f"No se puede determinar la versión del cliente Weaviate: {e}")
+        
+        # Verificar si la clase ya existe
+        existing_classes = [cls["class"] for cls in schema.get("classes", [])]
+        
+        # Esta es probablemente la línea 112 donde falta el bloque indentado
+        if KNOWLEDGE_CLASS not in existing_classes:
+            # Añadir código aquí para crear la clase
+            class_obj = {
+                "class": KNOWLEDGE_CLASS,
+                "vectorizer": "none", 
+                "vectorIndexConfig": {
+                    "distance": "cosine",
+                    "ef": 256,
+                    "efConstruction": 512
                 },
-                {
-                    "name": "user_id",
-                    "dataType": ["string"],
-                    "description": "ID of the user who uploaded the document",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "filename",
-                    "dataType": ["string"],
-                    "description": "Original filename",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "job_id",
-                    "dataType": ["string"],
-                    "description": "Processing job ID",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "content_type",
-                    "dataType": ["string"],
-                    "description": "Original file content type",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "page",
-                    "dataType": ["int"],
-                    "description": "Page number for PDF documents",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "batch_id",
-                    "dataType": ["int"],
-                    "description": "Batch identifier for processing",
-                    "indexFilterable": True
-                },
-                {
-                    "name": "processed_at",
-                    "dataType": ["date"],
-                    "description": "When the chunk was processed",
-                    "indexFilterable": True
-                }
-            ]
-        }
-        client.schema.create_class(class_obj)
-        return True
-    return False
+                "properties": [
+                    {"name": "content", "dataType": ["text"]},
+                    {"name": "user_id", "dataType": ["string"]},
+                    {"name": "filename", "dataType": ["string"]},
+                    {"name": "job_id", "dataType": ["string"]},
+                    {"name": "content_type", "dataType": ["string"]},
+                    {"name": "processed_at", "dataType": ["string"]}
+                ]
+            }
+            
+            # Crear la clase en weaviate usando la API correcta según la versión
+            try:
+                client.schema.create_class(class_obj)
+            except AttributeError:
+                try:
+                    client.schema().create_class(class_obj)
+                except:
+                    # Último intento para V4
+                    client.collections.create(class_obj)
+            
+            logger.info(f"Created schema for class {KNOWLEDGE_CLASS}")
+    except Exception as e:
+        logger.error(f"Error initializing schema: {e}")
+        raise RuntimeError(f"Cannot initialize schema: {e}")
 
 def store_vectors_in_weaviate(vectors: List[Dict[str, Any]], metadata: Dict[str, Any]):
     """

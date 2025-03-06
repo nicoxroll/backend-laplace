@@ -5,7 +5,7 @@
 $containerName = "backend-laplace-db-1"  # Cambia al contenedor de la base de datos
 $postgresUser = "postgres"
 $postgresDb = "laplace"
-$sqlDirectory = "C:\Users\Usuario\repo\backend-laplace\api\migrations"
+$sqlDirectory = "C:\Users\cresp\repo\backend-laplace\api\migrations"
 
 # Obtener todos los archivos SQL del directorio y ordenarlos
 $sqlFiles = Get-ChildItem -Path $sqlDirectory -Filter "*.sql" | Sort-Object Name

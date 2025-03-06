@@ -60,7 +60,7 @@ markdown>=3.4.0            # Para archivos Markdown
 # Optimización de procesamiento
 joblib>=1.2.0              # Para paralelización de tareas
 tqdm>=4.64.0               # Para barras de progreso
-aiofiles>=22.0.0           # Manejo asíncrono de archivos
+aiofiles>=23.1.0           # Añadir esta línea a los requisitos
 
 # Utilidades para archivos
 python-magic>=0.4.25       # Detección de tipos MIME

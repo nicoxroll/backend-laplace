@@ -58,3 +58,33 @@ async def expand_query(query: dict):
 async def health_check():
     # Respuesta completa que Weaviate espera
     return {"status": "ok"}  # Cambiar de "healthy" a "ok"
+
+# Añadir este nuevo endpoint después de los existentes
+
+@app.post("/embeddings")
+async def generate_embeddings(request: dict):
+    try:
+        # Extraer los textos del request
+        texts = request.get("texts", [])
+        if not texts:
+            raise ValueError("Missing or empty 'texts' field in request")
+        
+        # Generar embeddings utilizando el modelo BERT
+        embeddings = []
+        for text in texts:
+            # Tokenizar y obtener embeddings
+            inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            with torch.no_grad():
+                outputs = model(**inputs)
+            
+            # Para embeddings, usamos la salida del token [CLS] (el primer token)
+            # que contiene la representación de la oración completa
+            embedding = outputs.last_hidden_state[0, 0, :].numpy().tolist()
+            embeddings.append(embedding)
+        
+        # Devolver los embeddings generados
+        return {"embeddings": embeddings}
+        
+    except Exception as e:
+        logger.error(f"Error generating embeddings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

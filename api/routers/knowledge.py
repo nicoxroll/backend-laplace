@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 import os
 import uuid
+# Añadir este import al inicio del archivo junto con los demás imports
+import aiofiles
 import hashlib
 from datetime import datetime
 from pydantic import BaseModel
@@ -34,6 +36,7 @@ from utils.file_handler import TempFileManager
 from typing import Dict, List
 # Asegúrate de importar también estos modelos
 from models import Agent, AgentKnowledgeItem
+
 
 # Define response models
 class FileUploadResponse(BaseModel):
@@ -1078,75 +1081,36 @@ async def process_repository(
             detail=f"Error al procesar el repositorio: {str(e)}"
         )
 
-async def process_repository_background(file_path: str, metadata: dict, job_id: str):
-    """Procesa un repositorio en segundo plano"""
-    file_manager = metadata.get("file_manager")
-    
+async def process_repository_background(file_path: str, job_id: str, user_id: str, metadata: dict):
+    """
+    Procesa un repositorio en segundo plano
+    """
     try:
-        update_processing_status(job_id, {
-            "status": "processing",
-            "progress": 0.2,
-            "message": "Procesando datos del repositorio"
-        })
+        # Actualizar estado a procesando
+        await update_processing_status(job_id, "processing", 0.1)
         
-        # Leer contenido del archivo JSON
-        async with aiofiles.open(file_path, 'r') as f:
-            content = await f.read()
-            repo_data = json.loads(content)
+        # Procesar el repositorio JSON
+        result = await process_repository_json(file_path, job_id, user_id, metadata)
         
-        # Subir a Weaviate
-        update_processing_status(job_id, {
-            "status": "processing",
-            "progress": 0.4,
-            "message": "Almacenando en base vectorial"
-        })
-        
-        weaviate_id = await upload_repository_to_weaviate(
-            file_path, 
-            metadata["repository_name"], 
-            metadata["user_id"], 
-            job_id,
-            repo_data
-        )
-        
-        # Guardar en base de datos SQL
-        db = SessionLocal()
-        try:
-            # Crear entrada en knowledge
-            knowledge = Knowledge(
-                name=metadata["repository_name"],
-                description=f"Repositorio: {metadata['repository_name']}",
-                user_id=metadata["user_id"],
-                job_id=job_id,
-                file_name=metadata["filename"],
-                file_size=metadata["file_size"],
-                file_type="repository/json",
-                weaviate_id=weaviate_id
-            )
-            
-            db.add(knowledge)
-            db.commit()
-            
-            update_processing_status(job_id, {
-                "status": "completed",
-                "progress": 1.0,
-                "message": "Repositorio procesado correctamente",
-                "knowledge_id": knowledge.id
-            })
-            
-        finally:
-            db.close()
+        if result["status"] == "completed":
+            # Actualizar estado a completado
+            await update_processing_status(job_id, "completed", 1.0, vector_ids=result.get("vector_ids"))
+            logger.info(f"Repositorio procesado con éxito: {metadata['filename']}")
+        else:
+            # Actualizar estado a fallido
+            await update_processing_status(job_id, "failed", None)
+            logger.error(f"Fallo al procesar repositorio: {result.get('error')}")
             
     except Exception as e:
-        logger.error(f"Error procesando repositorio {job_id}: {str(e)}")
-        update_processing_status(job_id, {
-            "status": "failed",
-            "message": f"Error: {str(e)}"
-        })
+        logger.error(f"Error en procesamiento background de repositorio: {str(e)}")
+        await update_processing_status(job_id, "failed", None)
     finally:
-        # Limpiar recursos temporales
-        if file_manager:
-            file_manager.cleanup()
+        # Limpiar archivo temporal
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except:
+            pass
 
 async def upload_repository_to_weaviate(file_path: str, repo_name: str, user_id: str, job_id: str, repo_data: dict):
     """Sube datos del repositorio a Weaviate"""
@@ -1179,4 +1143,61 @@ async def upload_repository_to_weaviate(file_path: str, repo_name: str, user_id:
     except Exception as e:
         logger.error(f"Error al subir repositorio a Weaviate: {str(e)}")
         raise
+
+@router.post("/repository", response_model=FileUploadResponse)
+async def upload_repository(
+    repo_file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Carga un archivo JSON de repositorio para indexarlo en la base de conocimiento
+    """
+    try:
+        # Verificar el tipo de archivo
+        if not repo_file.filename.lower().endswith('.json'):
+            raise HTTPException(status_code=400, detail="Solo se permiten archivos JSON para repositorios")
+            
+        # Guardar el archivo
+        temp_dir = "temp_uploads"
+        os.makedirs(temp_dir, exist_ok=True)
+        file_name = f"{uuid.uuid4().hex}_{secure_filename(repo_file.filename)}"
+        file_path = os.path.join(temp_dir, file_name)
+        
+        # Escribir contenido usando aiofiles
+        async with aiofiles.open(file_path, "wb") as buffer:
+            content = await repo_file.read()
+            await buffer.write(content)
+            
+        # Crear trabajo de procesamiento
+        job_id = str(uuid.uuid4())
+        metadata = {
+            "filename": repo_file.filename,
+            "content_type": "repository",
+            "file_path": file_path
+        }
+        
+        # Actualizar el estado inicial
+        await update_processing_status(job_id, "pending", None)
+        
+        # Procesar en segundo plano
+        if background_tasks:
+            background_tasks.add_task(
+                process_repository_background, 
+                file_path, 
+                job_id, 
+                str(current_user.id), 
+                metadata
+            )
+        
+        return {
+            "job_id": job_id,
+            "filename": repo_file.filename,
+            "status": "processing"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error en carga de repositorio: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al procesar el repositorio: {str(e)}")
 

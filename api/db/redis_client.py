@@ -10,20 +10,11 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Configure Redis client
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+# Usar la variable de entorno correctamente
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-# Redis connection setup
-redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    password=REDIS_PASSWORD,
-    db=REDIS_DB,
-    decode_responses=True
-)
+# Inicializar cliente Redis con la URL correcta
+redis_client = redis.from_url(REDIS_URL)
 
 # Key prefixes
 PROCESSING_STATUS_PREFIX = "knowledge:processing:"
